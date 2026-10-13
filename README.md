@@ -101,9 +101,10 @@ php bin/issuer.php serve
 php tests/run.php
 PHP_BINARY=/path/to/php python3 tests/http_smoke.py
 PHP_BINARY=/path/to/php python3 tests/quickstart_smoke.py
+PHP_BINARY=/path/to/php python3 tests/issuer_smoke.py
 ```
 
-`tests/run.php` 覆盖 SQLite 快速安装、旧库升级、内容、单页、站点设置、会员、权限、分页和授权。`tests/http_smoke.py` 在临时副本上走完安装、后台管理、图片上传、会员访问及授权激活。MySQL 专项测试 `tests/mysql.php` 只允许连接名称以 `_test` 结尾的**空测试数据库**，需通过 `FANGDAYS_MYSQL_HOST`、`FANGDAYS_MYSQL_PORT`、`FANGDAYS_MYSQL_NAME`、`FANGDAYS_MYSQL_USER` 和 `FANGDAYS_MYSQL_PASSWORD` 指定连接。
+`tests/run.php` 覆盖 SQLite 快速安装、旧库升级、内容、单页、站点设置、会员、权限、分页和授权。`tests/http_smoke.py` 在临时副本上走完安装、后台管理、图片上传、会员访问及授权激活。`tests/issuer_smoke.py` 使用临时私钥与数据库验证授权中心签发、导入、登录、CSRF 和域名验签。MySQL 专项测试 `tests/mysql.php` 只允许连接名称以 `_test` 结尾的**空测试数据库**，需通过 `FANGDAYS_MYSQL_HOST`、`FANGDAYS_MYSQL_PORT`、`FANGDAYS_MYSQL_NAME`、`FANGDAYS_MYSQL_USER` 和 `FANGDAYS_MYSQL_PASSWORD` 指定连接。
 
 ## 从首期版本升级
 
