@@ -1,0 +1,129 @@
+<?php
+declare(strict_types=1);
+
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
+/** Run only against an empty, disposable MySQL database whose name ends in _test. */
+require dirname(__DIR__) . '/autoload.php';
+
+use FangdaysCMS\Cms\ContentRepository;
+use FangdaysCMS\Cms\Database;
+use FangdaysCMS\Cms\Installer;
+use FangdaysCMS\Cms\TagRepository;
+use FangdaysCMS\Cms\MemberRepository;
+use FangdaysCMS\Cms\AccessRepository;
+use FangdaysCMS\Cms\PageRepository;
+use FangdaysCMS\Cms\SettingsRepository;
+use FangdaysCMS\Cms\MediaRepository;
+
+$name = getenv('FANGDAYS_MYSQL_NAME') ?: '';
+if (! preg_match('/^[a-zA-Z0-9_]+_test$/D', $name)) {
+    fwrite(STDERR, "FANGDAYS_MYSQL_NAME must end with _test\n");
+    exit(1);
+}
+$database = array(
+    'driver' => 'mysql',
+    'host' => getenv('FANGDAYS_MYSQL_HOST') ?: '127.0.0.1',
+    'port' => getenv('FANGDAYS_MYSQL_PORT') ?: '3306',
+    'name' => $name,
+    'user' => getenv('FANGDAYS_MYSQL_USER') ?: '',
+    'password' => getenv('FANGDAYS_MYSQL_PASSWORD') ?: ''
+);
+$pdo = Database::connect($database);
+if ((int) $pdo->query('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()')->fetchColumn() !== 0) {
+    throw new RuntimeException('Disposable MySQL test database is not empty.');
+}
+$root = sys_get_temp_dir() . '/fangdays-mysql-test-' . bin2hex(random_bytes(8));
+mkdir($root . '/config', 0700, true);
+mkdir($root . '/var', 0700, true);
+
+try {
+    $pair = sodium_crypto_sign_keypair();
+    Installer::install(array(
+        'site_name' => 'MySQL 测试',
+        'site_domain' => 'example.com',
+        'admin_username' => 'owner',
+        'admin_password' => 'strong-test-password-123',
+        'license_key_id' => 'main',
+        'license_public_key' => base64_encode(sodium_crypto_sign_publickey($pair)),
+        'database_driver' => 'mysql',
+        'mysql_host' => $database['host'],
+        'mysql_port' => $database['port'],
+        'mysql_name' => $database['name'],
+        'mysql_user' => $database['user'],
+        'mysql_password' => $database['password']
+    ), $root);
+    $config = require $root . '/config/app.php';
+    $repo = new ContentRepository(Database::connect($config['database']));
+    $category = $repo->saveCategory(null, '新闻', 'news', 1);
+    $post = $repo->savePost(null, $category, 'MySQL 文章', 'mysql-post', '正文', 'published');
+    if ($repo->publishedPostBySlug('mysql-post')['id'] != $post) {
+        throw new RuntimeException('MySQL published lookup failed.');
+    }
+    $repo->deleteCategory($category);
+    if ($repo->post($post)['category_id'] !== null) {
+        throw new RuntimeException('MySQL category deletion did not preserve article.');
+    }
+    $tags = new TagRepository(Database::connect($config['database']));
+    $tag = $tags->save(null, 'MySQL 标签', 'mysql-tag');
+    $tags->setForPost($post, array($tag));
+    $repo->setVisibility($post, 'members');
+    if (count($repo->posts('published')) !== 0 || count($repo->posts('published', null, true, $tag)) !== 1) {
+        throw new RuntimeException('MySQL tag or visibility check failed.');
+    }
+    for ($i = 1; $i <= 21; $i++) {
+        $repo->savePost(null, null, 'MySQL 分页 ' . $i, 'mysql-page-' . $i, '正文', 'published');
+    }
+    if ($repo->countPosts('published') !== 21 || count($repo->posts('published')) !== 20 || count($repo->posts('published', page: 2)) !== 1) {
+        throw new RuntimeException('MySQL pagination failed.');
+    }
+    $members = new MemberRepository(Database::connect($config['database']));
+    $memberId = $members->register('mysql@example.com', 'MySQL 会员', 'mysql-member-password-123');
+    if ($members->authenticate('mysql@example.com', 'mysql-member-password-123')['id'] != $memberId) {
+        throw new RuntimeException('MySQL member authentication failed.');
+    }
+    if ((new AccessRepository(Database::connect($config['database'])))->admins()[0]['role_slug'] !== 'owner') {
+        throw new RuntimeException('MySQL owner role was not created.');
+    }
+    $pages = new PageRepository(Database::connect($config['database']));
+    $pageId = $pages->save(null, 'MySQL 单页', 'mysql-about', '正文', 'published', 1);
+    if ($pages->publishedBySlug('mysql-about')['id'] != $pageId) {
+        throw new RuntimeException('MySQL page lookup failed.');
+    }
+    $settings = new SettingsRepository(Database::connect($config['database']));
+    $settings->save('MySQL 站点', '简介', '页脚');
+    if ($settings->all('原站点')['site_name'] !== 'MySQL 站点') {
+        throw new RuntimeException('MySQL settings failed.');
+    }
+    $pdo->exec("INSERT INTO media (path, original_name, mime_type, bytes, created_at) VALUES ('/uploads/2026/10/0123456789abcdef0123456789abcdef.png', 'test.png', 'image/png', 100, 1)");
+    (new MediaRepository($pdo, $root . '/public'))->setCover($post, (int) $pdo->lastInsertId());
+    if ($repo->publishedPostBySlug('mysql-post')['cover_path'] === null) {
+        throw new RuntimeException('MySQL post cover failed.');
+    }
+    echo "FangdaysCMS MySQL schema, content, tags, membership, and roles passed\n";
+} finally {
+    $pdo->exec('DROP TABLE IF EXISTS post_cover');
+    $pdo->exec('DROP TABLE IF EXISTS media');
+    $pdo->exec('DROP TABLE IF EXISTS site_settings');
+    $pdo->exec('DROP TABLE IF EXISTS pages');
+    $pdo->exec('DROP TABLE IF EXISTS post_tags');
+    $pdo->exec('DROP TABLE IF EXISTS post_visibility');
+    $pdo->exec('DROP TABLE IF EXISTS posts');
+    $pdo->exec('DROP TABLE IF EXISTS tags');
+    $pdo->exec('DROP TABLE IF EXISTS members');
+    $pdo->exec('DROP TABLE IF EXISTS user_roles');
+    $pdo->exec('DROP TABLE IF EXISTS role_permissions');
+    $pdo->exec('DROP TABLE IF EXISTS roles');
+    $pdo->exec('DROP TABLE IF EXISTS categories');
+    $pdo->exec('DROP TABLE IF EXISTS users');
+    $pdo->exec('DROP TABLE IF EXISTS cms_schema');
+    if (is_file($root . '/config/app.php')) {
+        unlink($root . '/config/app.php');
+    }
+    rmdir($root . '/config');
+    rmdir($root . '/var');
+    rmdir($root);
+}

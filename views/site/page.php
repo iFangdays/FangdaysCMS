@@ -1,0 +1,2 @@
+<section class="site-page-heading"><div class="container"><p class="site-kicker">单页</p><h1><?= \FangdaysCMS\Cms\View::e($page['title']) ?></h1></div></section>
+<div class="container py-5"><div class="row justify-content-center"><article class="col-lg-9"><div class="site-article-body"><?= nl2br(\FangdaysCMS\Cms\View::e($page['body'])) ?></div><p class="mt-5"><a href="/">← 返回首页</a></p></article></div></div>
