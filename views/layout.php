@@ -1,24 +1,26 @@
 <?php
 $routePath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+$loginPage = $routePath === '/login';
 $adminGroups = array(
-    '工作台' => array(array('/admin', '概览', 'dashboard.view', '▦')),
+    '工作台' => array(array('/admin', '管理概览', 'dashboard.view', 'fa-tachometer')),
     '内容管理' => array(
-        array('/admin/posts', '文章', 'content.view', '文'),
-        array('/admin/pages', '单页', 'content.view', '页'),
-        array('/admin/categories', '栏目', 'taxonomy.manage', '栏'),
-        array('/admin/tags', '标签', 'taxonomy.manage', '签'),
-        array('/admin/media', '媒体图片', 'media.manage', '图')
+        array('/admin/posts', '文章管理', 'content.view', 'fa-file-text-o'),
+        array('/admin/pages', '单页管理', 'content.view', 'fa-file-o'),
+        array('/admin/categories', '栏目管理', 'taxonomy.manage', 'fa-folder-o'),
+        array('/admin/tags', '标签管理', 'taxonomy.manage', 'fa-tags'),
+        array('/admin/media', '媒体图片', 'media.manage', 'fa-picture-o')
     ),
     '用户与权限' => array(
-        array('/admin/members', '会员', 'members.manage', '员'),
-        array('/admin/roles', '角色权限', 'access.manage', '权'),
-        array('/admin/admins', '后台账号', 'access.manage', '账')
+        array('/admin/members', '会员管理', 'members.manage', 'fa-users'),
+        array('/admin/roles', '角色权限', 'access.manage', 'fa-shield'),
+        array('/admin/admins', '后台账号', 'access.manage', 'fa-user-circle-o')
     ),
     '系统设置' => array(
-        array('/admin/settings', '站点设置', 'settings.manage', '设'),
-        array('/admin/license', '离线授权', 'license.manage', '授')
+        array('/admin/settings', '站点设置', 'settings.manage', 'fa-cog'),
+        array('/admin/license', '离线授权', 'license.manage', 'fa-key')
     )
 );
+$adminGroupIcons = array('工作台' => 'fa-tachometer', '内容管理' => 'fa-list-alt', '用户与权限' => 'fa-users', '系统设置' => 'fa-cogs');
 ?>
 <!doctype html>
 <html lang="zh-CN">
@@ -27,57 +29,86 @@ $adminGroups = array(
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title><?= \FangdaysCMS\Cms\View::e($pageTitle) ?> · <?= \FangdaysCMS\Cms\View::e($siteName) ?></title>
   <link rel="stylesheet" href="/assets/app.css">
-  <?php if ($admin): ?><link rel="stylesheet" href="/assets/admin.css"><?php endif; ?>
+  <?php if ($admin): ?>
+    <link rel="stylesheet" href="/assets/pboot-admin/layui/css/layui.css">
+    <link rel="stylesheet" href="/assets/pboot-admin/font-awesome/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/assets/pboot-admin/css/comm.css">
+    <link rel="stylesheet" href="/assets/admin.css">
+  <?php elseif ($loginPage): ?>
+    <link rel="stylesheet" href="/assets/pboot-admin/layui/css/layui.css">
+    <link rel="stylesheet" href="/assets/pboot-admin/font-awesome/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/assets/pboot-admin/css/login.css">
+    <link rel="stylesheet" href="/assets/admin-login.css">
+  <?php endif; ?>
 </head>
-<body class="<?= $admin ? 'admin-body' : '' ?>">
+<body class="<?= $admin ? 'admin-body' : ($loginPage ? 'admin-login-body' : '') ?>">
 <?php if ($admin): ?>
-  <div class="admin-shell">
-    <aside class="admin-sidebar" id="admin-navigation" aria-label="后台导航">
-      <a class="admin-brand" href="/admin"><span class="admin-brand-mark" aria-hidden="true">F</span><span>FangdaysCMS<small>内容管理中心</small></span></a>
-      <nav class="admin-side-nav" aria-label="管理菜单">
+  <div class="layui-layout layui-layout-admin admin-shell">
+    <header class="layui-header">
+      <div class="layui-logo"><a href="/admin"><i class="fa fa-leaf" aria-hidden="true"></i> FangdaysCMS</a></div>
+      <button class="menu-ico admin-nav-toggle" type="button" aria-controls="admin-navigation" aria-expanded="false" aria-label="显示或隐藏侧边栏"><i class="fa fa-bars" aria-hidden="true"></i></button>
+      <ul class="layui-nav layui-layout-right admin-header-links">
+        <li class="layui-nav-item"><a href="/" target="_blank" rel="noopener"><i class="fa fa-home" aria-hidden="true"></i> 网站主页</a></li>
+        <li class="layui-nav-item admin-account"><i class="fa fa-user-circle-o" aria-hidden="true"></i> <?= \FangdaysCMS\Cms\View::e($user['username']) ?> <span class="admin-role"><?= \FangdaysCMS\Cms\View::e($user['role_name']) ?></span></li>
+        <li class="layui-nav-item"><form method="post" action="/logout" class="inline-form"><?= \FangdaysCMS\Cms\View::csrf() ?><button type="submit" class="admin-logout"><i class="fa fa-sign-out" aria-hidden="true"></i> 退出登录</button></form></li>
+      </ul>
+    </header>
+    <aside class="layui-side layui-bg-black admin-sidebar" id="admin-navigation" aria-label="后台导航">
+      <nav class="layui-side-scroll" aria-label="管理菜单">
+        <ul class="layui-nav layui-nav-tree" id="nav">
         <?php foreach ($adminGroups as $group => $items): ?>
           <?php $visible = array_values(array_filter($items, static fn (array $item): bool => $can[$item[2]] ?? false)); ?>
           <?php if (! $visible) { continue; } ?>
-          <div class="admin-nav-group">
-            <p class="admin-nav-heading"><?= \FangdaysCMS\Cms\View::e($group) ?></p>
+          <?php $expanded = false; foreach ($visible as $item) { if ($item[0] === '/admin' ? $routePath === '/admin' : str_starts_with($routePath, $item[0])) { $expanded = true; break; } } ?>
+          <li class="layui-nav-item admin-nav-group<?= $expanded ? ' layui-nav-itemed' : '' ?>">
+            <button class="admin-group-toggle" type="button" aria-expanded="<?= $expanded ? 'true' : 'false' ?>"><i class="fa <?= $adminGroupIcons[$group] ?>" aria-hidden="true"></i><?= \FangdaysCMS\Cms\View::e($group) ?><i class="fa fa-angle-down admin-chevron" aria-hidden="true"></i></button>
+            <dl class="layui-nav-child">
             <?php foreach ($visible as [$href, $label, $permission, $icon]): ?>
               <?php $current = $href === '/admin' ? $routePath === '/admin' : str_starts_with($routePath, $href); ?>
-              <a class="admin-nav-link<?= $current ? ' is-current' : '' ?>" href="<?= \FangdaysCMS\Cms\View::e($href) ?>" <?= $current ? 'aria-current="page"' : '' ?>><span class="admin-nav-icon" aria-hidden="true"><?= \FangdaysCMS\Cms\View::e($icon) ?></span><?= \FangdaysCMS\Cms\View::e($label) ?></a>
+              <dd class="<?= $current ? 'layui-this' : '' ?>"><a href="<?= \FangdaysCMS\Cms\View::e($href) ?>" <?= $current ? 'aria-current="page"' : '' ?>><i class="fa <?= \FangdaysCMS\Cms\View::e($icon) ?>" aria-hidden="true"></i><?= \FangdaysCMS\Cms\View::e($label) ?></a></dd>
             <?php endforeach; ?>
-          </div>
+            </dl>
+          </li>
         <?php endforeach; ?>
+        </ul>
       </nav>
-      <div class="admin-sidebar-foot"><?= \FangdaysCMS\Cms\View::e($siteName) ?></div>
     </aside>
     <button class="admin-scrim" type="button" aria-label="关闭导航" hidden></button>
-    <div class="admin-workspace">
-      <header class="admin-topbar">
-        <div class="admin-topbar-title"><button class="admin-nav-toggle" type="button" aria-controls="admin-navigation" aria-expanded="false" aria-label="打开导航">☰</button><span>管理后台</span><span class="admin-title-divider">/</span><strong><?= \FangdaysCMS\Cms\View::e($pageTitle) ?></strong></div>
-        <div class="admin-topbar-actions"><a href="/" target="_blank" rel="noopener">查看网站 ↗</a><span class="admin-account"><?= \FangdaysCMS\Cms\View::e($user['username']) ?> · <?= \FangdaysCMS\Cms\View::e($user['role_name']) ?></span><form method="post" action="/logout" class="inline-form"><?= \FangdaysCMS\Cms\View::csrf() ?><button type="submit" class="admin-logout">退出</button></form></div>
-      </header>
-      <main class="admin-content" id="main-content">
+    <main class="layui-body admin-content" id="main-content">
         <?php if ($flash): ?><div class="<?= str_starts_with((string) $flash, '操作失败：') ? 'error' : 'notice' ?>" role="status"><?= \FangdaysCMS\Cms\View::e($flash) ?></div><?php endif; ?>
         <?= $content ?>
-      </main>
-      <footer class="admin-footer">FangdaysCMS · 内容管理中心</footer>
-    </div>
+    </main>
   </div>
   <script>
     (() => {
       const toggle = document.querySelector('.admin-nav-toggle');
       const scrim = document.querySelector('.admin-scrim');
-      const close = () => { document.body.classList.remove('admin-nav-open'); toggle.setAttribute('aria-expanded', 'false'); toggle.setAttribute('aria-label', '打开导航'); scrim.hidden = true; };
+      const mobile = () => window.matchMedia('(max-width: 750px)').matches;
+      const sync = () => toggle.setAttribute('aria-expanded', String(mobile() ? document.body.classList.contains('admin-nav-open') : !document.body.classList.contains('admin-nav-collapsed')));
+      const close = () => { document.body.classList.remove('admin-nav-open'); scrim.hidden = true; sync(); };
       toggle.addEventListener('click', () => {
-        if (document.body.classList.contains('admin-nav-open')) { close(); return; }
-        document.body.classList.add('admin-nav-open');
-        toggle.setAttribute('aria-expanded', 'true');
-        toggle.setAttribute('aria-label', '关闭导航');
-        scrim.hidden = false;
+        if (mobile()) {
+          if (document.body.classList.contains('admin-nav-open')) { close(); return; }
+          document.body.classList.add('admin-nav-open');
+          scrim.hidden = false;
+        } else {
+          document.body.classList.toggle('admin-nav-collapsed');
+        }
+        sync();
       });
       scrim.addEventListener('click', close);
       document.addEventListener('keydown', (event) => { if (event.key === 'Escape') close(); });
+      window.addEventListener('resize', close);
+      sync();
+      document.querySelectorAll('.admin-group-toggle').forEach((button) => button.addEventListener('click', () => {
+        const group = button.closest('.layui-nav-item');
+        group.classList.toggle('layui-nav-itemed');
+        button.setAttribute('aria-expanded', String(group.classList.contains('layui-nav-itemed')));
+      }));
     })();
   </script>
+<?php elseif ($loginPage): ?>
+  <?= $content ?>
 <?php else: ?>
   <header class="topbar">
     <div class="wrap topbar-inner">

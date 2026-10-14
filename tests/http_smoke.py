@@ -99,7 +99,8 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         status, dashboard = request(
             "/login", {"_csrf": csrf(login), "username": "owner", "password": "strong-test-password-123"}
         )
-        assert status == 200 and "管理后台" in dashboard and 'id="admin-navigation"' in dashboard
+        assert status == 200 and "管理中心" in dashboard and 'id="admin-navigation"' in dashboard
+        assert "/assets/pboot-admin/layui/css/layui.css" in dashboard
 
         status, categories = request("/admin/categories/new")
         assert status == 200

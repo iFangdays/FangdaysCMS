@@ -1,0 +1,3 @@
+# Preserve copied icon fonts verbatim and keep generated glyph SVG out of text diffs.
+public/assets/pboot-admin/layui/font/iconfont.svg binary
+public/assets/pboot-admin/font-awesome/fonts/fontawesome-webfont.svg binary

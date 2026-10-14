@@ -1,0 +1,13 @@
+/* FangdaysCMS form binding for PbootCMS's copied login.css. */
+body.admin-login-body{min-width:320px;background-position:center;background-size:cover}
+.admin-login-body .user-login{min-height:100vh;padding-top:clamp(80px,16vh,160px)}
+.admin-login-body .user-login-main{background:rgba(248,248,255,.16);backdrop-filter:blur(3px)}
+.admin-login-body .user-login-box{padding:24px}
+.admin-login-body .user-login-box .layui-input{border-radius:2px}
+.admin-login-body .user-login-box .layui-btn{border-radius:2px;background:#009688}
+.admin-login-body .user-login-box .layui-btn:hover{background:#33aba0}
+.admin-login-body .admin-login-home{text-align:center;margin:16px 0 0}
+.admin-login-body .admin-login-home a{color:#fff}
+.admin-login-body .notice,.admin-login-body .error{border-radius:2px;padding:9px 12px;font-size:13px}
+.admin-login-body .user-login-footer{color:#eee}
+@media(max-width:768px){.admin-login-body .user-login-box{padding:18px}}

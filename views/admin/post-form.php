@@ -1,4 +1,6 @@
-<div class="page-heading admin-page-heading"><div><p class="eyebrow">文章编辑</p><h1><?= \FangdaysCMS\Cms\View::e($pageTitle) ?></h1><p class="muted">填写内容后可保存草稿，或直接发布到网站。</p></div><a href="/admin/posts">返回文章列表</a></div>
+<div class="layui-tab layui-tab-brief">
+  <ul class="layui-tab-title"><li><a href="/admin/posts">文章列表</a></li><li class="layui-this"><a href="<?= $post && $post['id'] ? '/admin/posts/' . (int) $post['id'] . '/edit' : '/admin/posts/new' ?>"><?= $post && $post['id'] ? '文章修改' : '文章新增' ?></a></li></ul>
+  <div class="layui-tab-content">
 <?php if ($error): ?><div class="error" role="alert"><?= \FangdaysCMS\Cms\View::e($error) ?></div><?php endif; ?>
 <form method="post" action="<?= $post && $post['id'] ? '/admin/posts/' . (int) $post['id'] . '/edit' : '/admin/posts' ?>" class="admin-editor-grid">
   <?= \FangdaysCMS\Cms\View::csrf() ?>
@@ -19,7 +21,7 @@
     <section class="panel stack"><div><p class="eyebrow">发布设置</p><h2>状态与范围</h2></div>
       <label>状态<select name="status"><option value="draft" <?= ($post['status'] ?? 'draft') === 'draft' ? 'selected' : '' ?>>草稿</option><option value="published" <?= ($post['status'] ?? '') === 'published' ? 'selected' : '' ?>>已发布</option></select></label>
       <label>可见范围<select name="visibility"><option value="public" <?= ($post['visibility'] ?? 'public') === 'public' ? 'selected' : '' ?>>公开</option><option value="members" <?= ($post['visibility'] ?? '') === 'members' ? 'selected' : '' ?>>仅会员</option></select></label>
-      <button type="submit">保存文章</button>
+      <button class="layui-btn" type="submit">保存文章</button>
       <?php if ($post && ($post['status'] ?? '') === 'published' && ($post['visibility'] ?? 'public') === 'public'): ?><a href="/post/<?= \FangdaysCMS\Cms\View::e($post['slug']) ?>" target="_blank" rel="noopener">查看已发布页面 ↗</a><?php endif; ?>
     </section>
     <section class="panel stack"><div><p class="eyebrow">展示图片</p><h2>封面</h2></div>
@@ -28,3 +30,5 @@
     </section>
   </aside>
 </form>
+  </div>
+</div>
