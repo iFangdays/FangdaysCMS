@@ -10,6 +10,7 @@ if (PHP_SAPI !== 'cli') {
 require dirname(__DIR__) . '/autoload.php';
 
 use FangdaysCMS\Cms\ContentRepository;
+use FangdaysCMS\Cms\ContentModelRepository;
 use FangdaysCMS\Cms\Database;
 use FangdaysCMS\Cms\Installer;
 use FangdaysCMS\Cms\TagRepository;
@@ -63,6 +64,14 @@ try {
     if ($repo->publishedPostBySlug('mysql-post')['id'] != $post) {
         throw new RuntimeException('MySQL published lookup failed.');
     }
+    $models = new ContentModelRepository($pdo);
+    $model = $models->saveModel(null, '产品模型', 'product');
+    $field = $models->saveField(null, $model, 'ext_color', '颜色', 'select', '红色,蓝色', true, 1);
+    $models->bindCategory($category, $model);
+    $models->setValuesForPost($post, $category, array($field => '红色'));
+    if ($models->publicFieldsForPost($post, $category)[0]['value'] !== '红色' || $repo->countPosts('published', null, true, null, '红色') !== 1) {
+        throw new RuntimeException('MySQL content model field failed.');
+    }
     $repo->deleteCategory($category);
     if ($repo->post($post)['category_id'] !== null) {
         throw new RuntimeException('MySQL category deletion did not preserve article.');
@@ -105,6 +114,10 @@ try {
     }
     echo "FangdaysCMS MySQL schema, content, tags, membership, and roles passed\n";
 } finally {
+    $pdo->exec('DROP TABLE IF EXISTS post_field_values');
+    $pdo->exec('DROP TABLE IF EXISTS category_models');
+    $pdo->exec('DROP TABLE IF EXISTS model_fields');
+    $pdo->exec('DROP TABLE IF EXISTS content_models');
     $pdo->exec('DROP TABLE IF EXISTS post_cover');
     $pdo->exec('DROP TABLE IF EXISTS media');
     $pdo->exec('DROP TABLE IF EXISTS site_settings');

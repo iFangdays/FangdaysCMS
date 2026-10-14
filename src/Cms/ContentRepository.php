@@ -14,24 +14,24 @@ final class ContentRepository
 
     public function categories(): array
     {
-        return $this->pdo->query('SELECT id, name, slug, sort_order FROM categories ORDER BY sort_order ASC, id ASC')->fetchAll();
+        return $this->pdo->query('SELECT c.id, c.name, c.slug, c.sort_order, cm.model_id FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id ORDER BY c.sort_order ASC, c.id ASC')->fetchAll();
     }
 
     public function categoriesWithPostCounts(): array
     {
-        return $this->pdo->query('SELECT c.id, c.name, c.slug, c.sort_order, COUNT(p.id) AS post_count FROM categories c LEFT JOIN posts p ON p.category_id = c.id GROUP BY c.id, c.name, c.slug, c.sort_order ORDER BY c.sort_order ASC, c.id ASC')->fetchAll();
+        return $this->pdo->query('SELECT c.id, c.name, c.slug, c.sort_order, cm.model_id, m.name AS model_name, COUNT(p.id) AS post_count FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN content_models m ON m.id = cm.model_id LEFT JOIN posts p ON p.category_id = c.id GROUP BY c.id, c.name, c.slug, c.sort_order, cm.model_id, m.name ORDER BY c.sort_order ASC, c.id ASC')->fetchAll();
     }
 
     public function category(int $id): ?array
     {
-        $stmt = $this->pdo->prepare('SELECT id, name, slug, sort_order FROM categories WHERE id = ?');
+        $stmt = $this->pdo->prepare('SELECT c.id, c.name, c.slug, c.sort_order, cm.model_id FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id WHERE c.id = ?');
         $stmt->execute(array($id));
         return $stmt->fetch() ?: null;
     }
 
     public function categoryBySlug(string $slug): ?array
     {
-        $stmt = $this->pdo->prepare('SELECT id, name, slug, sort_order FROM categories WHERE slug = ?');
+        $stmt = $this->pdo->prepare('SELECT c.id, c.name, c.slug, c.sort_order, cm.model_id FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id WHERE c.slug = ?');
         $stmt->execute(array($slug));
         return $stmt->fetch() ?: null;
     }
@@ -195,7 +195,8 @@ final class ContentRepository
             $params[] = $tagId;
         }
         if ($query !== null && trim($query) !== '') {
-            $where[] = '(p.title LIKE ? OR p.body LIKE ?)';
+            $where[] = "(p.title LIKE ? OR p.body LIKE ? OR EXISTS (SELECT 1 FROM post_field_values pf JOIN posts active_post ON active_post.id = pf.post_id JOIN model_fields mf ON mf.id = pf.field_id LEFT JOIN category_models cm ON cm.category_id = active_post.category_id WHERE pf.post_id = p.id AND mf.model_id = COALESCE(cm.model_id, (SELECT id FROM content_models WHERE slug = 'article')) AND pf.value LIKE ?))";
+            $params[] = '%' . trim($query) . '%';
             $params[] = '%' . trim($query) . '%';
             $params[] = '%' . trim($query) . '%';
         }

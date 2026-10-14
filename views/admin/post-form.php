@@ -13,6 +13,18 @@
       <label>栏目<select name="category_id"><option value="">未分类</option><?php foreach ($categories as $category): ?><option value="<?= (int) $category['id'] ?>" <?= (string) ($post['category_id'] ?? '') === (string) $category['id'] ? 'selected' : '' ?>><?= \FangdaysCMS\Cms\View::e($category['name']) ?></option><?php endforeach; ?></select><?php if (! $categories): ?><small>可先到栏目管理创建分类。</small><?php endif; ?></label>
     </div>
     <label>正文<textarea name="body" rows="20" placeholder="输入文章正文"><?= \FangdaysCMS\Cms\View::e($post['body'] ?? '') ?></textarea><small>当前正文以纯文本安全展示，换行会保留。</small></label>
+    <?php foreach ($model_form['fields'] as $modelId => $modelFields): ?><?php if ($modelFields): ?>
+      <?php $activeModel = (int) $modelId === (int) $model_form['active_id']; ?>
+      <fieldset class="admin-model-fields" data-model-id="<?= (int) $modelId ?>" <?= $activeModel ? '' : 'hidden' ?>><legend>模型扩展字段</legend><div class="stack">
+        <?php foreach ($modelFields as $field): ?>
+          <?php $fieldId = (int) $field['id']; $fieldValue = $extra_values[$fieldId] ?? $extra_values[(string) $fieldId] ?? ''; $disabled = $activeModel ? '' : 'disabled'; ?>
+          <?php if ($field['field_type'] === 'textarea'): ?><label><?= \FangdaysCMS\Cms\View::e($field['label']) ?><textarea name="extra[<?= $fieldId ?>]" rows="4" <?= $field['is_required'] ? 'required' : '' ?> <?= $disabled ?>><?= \FangdaysCMS\Cms\View::e($fieldValue) ?></textarea></label>
+          <?php elseif ($field['field_type'] === 'select'): ?><label><?= \FangdaysCMS\Cms\View::e($field['label']) ?><select name="extra[<?= $fieldId ?>]" <?= $field['is_required'] ? 'required' : '' ?> <?= $disabled ?>><option value="">请选择</option><?php foreach ($field['options'] as $option): ?><option value="<?= \FangdaysCMS\Cms\View::e($option) ?>" <?= $fieldValue === $option ? 'selected' : '' ?>><?= \FangdaysCMS\Cms\View::e($option) ?></option><?php endforeach; ?></select></label>
+          <?php elseif ($field['field_type'] === 'multi'): ?><?php $selected = is_array($fieldValue) ? $fieldValue : array_filter(explode(',', (string) $fieldValue)); ?><fieldset><legend><?= \FangdaysCMS\Cms\View::e($field['label']) ?></legend><div class="check-grid"><?php foreach ($field['options'] as $option): ?><label class="check"><input type="checkbox" name="extra[<?= $fieldId ?>][]" value="<?= \FangdaysCMS\Cms\View::e($option) ?>" <?= in_array($option, $selected, true) ? 'checked' : '' ?> <?= $disabled ?>><?= \FangdaysCMS\Cms\View::e($option) ?></label><?php endforeach; ?></div></fieldset>
+          <?php else: ?><label><?= \FangdaysCMS\Cms\View::e($field['label']) ?><input name="extra[<?= $fieldId ?>]" maxlength="200" value="<?= \FangdaysCMS\Cms\View::e($fieldValue) ?>" <?= $field['is_required'] ? 'required' : '' ?> <?= $disabled ?>></label><?php endif; ?>
+        <?php endforeach; ?>
+      </div></fieldset>
+    <?php endif; ?><?php endforeach; ?>
     <fieldset><legend>标签</legend><div class="check-grid">
       <?php foreach ($tags as $tag): ?><label class="check"><input type="checkbox" name="tag_ids[]" value="<?= (int) $tag['id'] ?>" <?= in_array((string) $tag['id'], array_map('strval', $selected_tags), true) ? 'checked' : '' ?>><?= \FangdaysCMS\Cms\View::e($tag['name']) ?></label><?php endforeach; ?>
       <?php if (! $tags): ?><p class="muted">暂无标签，可先到标签管理创建。</p><?php endif; ?>
@@ -33,3 +45,20 @@
 </form>
   </div>
 </div>
+<script>
+  (() => {
+    const category = document.querySelector('select[name="category_id"]');
+    const map = <?= json_encode($model_form['category_models'], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    const fallback = <?= (int) $model_form['default_id'] ?>;
+    const sync = () => {
+      const selected = String(map[category.value] || fallback);
+      document.querySelectorAll('.admin-model-fields').forEach((group) => {
+        const active = group.dataset.modelId === selected;
+        group.hidden = !active;
+        group.querySelectorAll('input, select, textarea').forEach((input) => { input.disabled = !active; });
+      });
+    };
+    category.addEventListener('change', sync);
+    sync();
+  })();
+</script>

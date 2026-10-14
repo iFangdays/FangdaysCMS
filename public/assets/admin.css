@@ -333,3 +333,4 @@ body.admin-body {
   .admin-body .layui-tab-title { margin: 0 -12px 12px; padding-left: 12px; }
   .admin-filter-form label { min-width: 0; }
 }
+.admin-model-fields[hidden] { display: none; }

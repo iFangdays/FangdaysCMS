@@ -7,6 +7,7 @@ $adminGroups = array(
         array('/admin/posts', '文章管理', 'content.view', 'fa-file-text-o'),
         array('/admin/pages', '单页管理', 'content.view', 'fa-file-o'),
         array('/admin/categories', '栏目管理', 'taxonomy.manage', 'fa-folder-o'),
+        array('/admin/models', '内容模型', 'taxonomy.manage', 'fa-cubes'),
         array('/admin/tags', '标签管理', 'taxonomy.manage', 'fa-tags'),
         array('/admin/media', '媒体图片', 'media.manage', 'fa-picture-o')
     ),

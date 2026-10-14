@@ -78,7 +78,7 @@ final class App
             $this->memberRoute($path, $method, $pdo, $site);
             return;
         }
-        $this->siteRoute($path, $method, $repo, new TagRepository($pdo), new PageRepository($pdo), $site);
+        $this->siteRoute($path, $method, $pdo, $repo, new TagRepository($pdo), new PageRepository($pdo), $site);
     }
 
     private function installRoute(string $path, string $method): void
@@ -140,7 +140,7 @@ final class App
         $permission = match (true) {
             $path === '/admin' => 'dashboard.view',
             str_starts_with($path, '/admin/license') => 'license.manage',
-            str_starts_with($path, '/admin/categories'), str_starts_with($path, '/admin/tags') => 'taxonomy.manage',
+            str_starts_with($path, '/admin/categories'), str_starts_with($path, '/admin/tags'), str_starts_with($path, '/admin/models') => 'taxonomy.manage',
             ($path === '/admin/posts' || $path === '/admin/pages') && $method === 'GET' => 'content.view',
             str_starts_with($path, '/admin/posts') => 'content.manage',
             str_starts_with($path, '/admin/pages') => 'content.manage',
@@ -159,6 +159,10 @@ final class App
         }
         if (str_starts_with($path, '/admin/tags')) {
             $this->tagAdminRoute($path, $method, new TagRepository($pdo), $base);
+            return;
+        }
+        if (str_starts_with($path, '/admin/models')) {
+            $this->modelAdminRoute($path, $method, new ContentModelRepository($pdo), $base);
             return;
         }
         if (str_starts_with($path, '/admin/members')) {
@@ -226,11 +230,11 @@ final class App
             return;
         }
         if ($path === '/admin/categories/new' && $method === 'GET') {
-            View::render('admin/category-form', $base + array('page_title' => '新建栏目', 'category' => null, 'error' => null));
+            View::render('admin/category-form', $base + array('page_title' => '新建栏目', 'category' => null, 'models' => (new ContentModelRepository($pdo))->all(), 'error' => null));
             return;
         }
         if ($path === '/admin/categories' && $method === 'POST') {
-            $this->saveCategory($repo, null, $base);
+            $this->saveCategory($pdo, $repo, null, $base);
             return;
         }
         if (preg_match('#^/admin/categories/([1-9][0-9]*)/edit$#D', $path, $match)) {
@@ -240,9 +244,9 @@ final class App
                 $this->notFound();
             }
             if ($method === 'POST') {
-                $this->saveCategory($repo, $id, $base);
+                $this->saveCategory($pdo, $repo, $id, $base);
             } elseif ($method === 'GET') {
-                View::render('admin/category-form', $base + array('page_title' => '编辑栏目', 'category' => $category, 'error' => null));
+                View::render('admin/category-form', $base + array('page_title' => '编辑栏目', 'category' => $category, 'models' => (new ContentModelRepository($pdo))->all(), 'error' => null));
             } else {
                 $this->notFound();
             }
@@ -284,7 +288,8 @@ final class App
             return;
         }
         if ($path === '/admin/posts/new' && $method === 'GET') {
-            View::render('admin/post-form', $base + array('page_title' => '新建文章', 'post' => null, 'categories' => $repo->categories(), 'tags' => (new TagRepository($pdo))->all(), 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'selected_tags' => array(), 'error' => null));
+            $models = new ContentModelRepository($pdo);
+            View::render('admin/post-form', $base + array('page_title' => '新建文章', 'post' => null, 'categories' => $repo->categories(), 'tags' => (new TagRepository($pdo))->all(), 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'selected_tags' => array(), 'extra_values' => array(), 'model_form' => self::postModelForm($models, $repo, null), 'error' => null));
             return;
         }
         if ($path === '/admin/posts' && $method === 'POST') {
@@ -300,7 +305,8 @@ final class App
             if ($method === 'POST') {
                 $this->savePost($pdo, $repo, $id, $base);
             } elseif ($method === 'GET') {
-                View::render('admin/post-form', $base + array('page_title' => '编辑文章', 'post' => $post, 'categories' => $repo->categories(), 'tags' => (new TagRepository($pdo))->all(), 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'selected_tags' => array_column((new TagRepository($pdo))->forPost($id), 'id'), 'error' => null));
+                $models = new ContentModelRepository($pdo);
+                View::render('admin/post-form', $base + array('page_title' => '编辑文章', 'post' => $post, 'categories' => $repo->categories(), 'tags' => (new TagRepository($pdo))->all(), 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'selected_tags' => array_column((new TagRepository($pdo))->forPost($id), 'id'), 'extra_values' => $models->valuesForPost($id), 'model_form' => self::postModelForm($models, $repo, $post), 'error' => null));
             } else {
                 $this->notFound();
             }
@@ -405,7 +411,7 @@ final class App
         View::render('admin/page-form', $base + array('page_title' => $id === null ? '新建单页' : '编辑单页', 'page' => $input, 'error' => $message), 422);
     }
 
-    private function siteRoute(string $path, string $method, ContentRepository $repo, TagRepository $tags, PageRepository $pages, array $base): void
+    private function siteRoute(string $path, string $method, PDO $pdo, ContentRepository $repo, TagRepository $tags, PageRepository $pages, array $base): void
     {
         if ($method !== 'GET') {
             $this->notFound();
@@ -470,22 +476,35 @@ final class App
                 View::render('member-required', $base + array('page_title' => '会员内容'), 403);
                 return;
             }
-            View::render('site/post', $base + array('page_title' => $post['title'], 'post' => $post, 'tags' => $tags->forPost((int) $post['id'])));
+            View::render('site/post', $base + array('page_title' => $post['title'], 'post' => $post, 'tags' => $tags->forPost((int) $post['id']), 'extra_fields' => (new ContentModelRepository($pdo))->publicFieldsForPost((int) $post['id'], $post['category_id'] === null ? null : (int) $post['category_id'])));
             return;
         }
         $this->notFound();
     }
 
-    private function saveCategory(ContentRepository $repo, ?int $id, array $base): void
+    private function saveCategory(PDO $pdo, ContentRepository $repo, ?int $id, array $base): void
     {
         $this->requireCsrf();
-        $input = array('name' => self::postString('name'), 'slug' => self::postString('slug'), 'sort_order' => self::postString('sort_order'));
+        $input = array('name' => self::postString('name'), 'slug' => self::postString('slug'), 'sort_order' => self::postString('sort_order'), 'model_id' => self::postString('model_id'));
         try {
             $sortOrder = filter_var($input['sort_order'], FILTER_VALIDATE_INT);
             if ($sortOrder === false) {
                 throw new InvalidArgumentException('栏目排序必须是整数。');
             }
-            $repo->saveCategory($id, $input['name'], $input['slug'], $sortOrder);
+            $models = new ContentModelRepository($pdo);
+            $modelId = $input['model_id'] === '' ? (int) $models->defaultModel()['id'] : filter_var($input['model_id'], FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
+            if ($modelId === false) {
+                throw new InvalidArgumentException('请选择有效的内容模型。');
+            }
+            $pdo->beginTransaction();
+            try {
+                $categoryId = $repo->saveCategory($id, $input['name'], $input['slug'], $sortOrder);
+                $models->bindCategory($categoryId, $modelId);
+                $pdo->commit();
+            } catch (Throwable $error) {
+                $pdo->rollBack();
+                throw $error;
+            }
             $_SESSION['flash'] = '栏目已保存。';
             $this->redirect('/admin/categories');
         } catch (InvalidArgumentException $error) {
@@ -493,7 +512,7 @@ final class App
         } catch (PDOException $error) {
             $message = '保存失败，请检查栏目别名是否重复。';
         }
-        View::render('admin/category-form', $base + array('page_title' => $id === null ? '新建栏目' : '编辑栏目', 'category' => $input + array('id' => $id), 'error' => $message), 422);
+        View::render('admin/category-form', $base + array('page_title' => $id === null ? '新建栏目' : '编辑栏目', 'category' => $input + array('id' => $id), 'models' => (new ContentModelRepository($pdo))->all(), 'error' => $message), 422);
     }
 
     private function savePost(PDO $pdo, ContentRepository $repo, ?int $id, array $base): void
@@ -506,7 +525,8 @@ final class App
             'status' => self::postString('status'),
             'category_id' => self::postString('category_id'),
             'visibility' => self::postString('visibility') ?: 'public',
-            'cover_media_id' => self::postString('cover_media_id')
+            'cover_media_id' => self::postString('cover_media_id'),
+            'extra' => $_POST['extra'] ?? array()
         );
         $rawTags = $_POST['tag_ids'] ?? array();
         $selectedTags = is_array($rawTags) ? array_values(array_filter($rawTags, 'is_string')) : array();
@@ -522,14 +542,19 @@ final class App
             if ($coverId === false) {
                 throw new InvalidArgumentException('封面图片无效。');
             }
+            if (! is_array($input['extra']) || count($input['extra']) > 100) {
+                throw new InvalidArgumentException('扩展字段无效。');
+            }
             $tags = new TagRepository($pdo);
             $media = new MediaRepository($pdo, $this->root . '/public');
+            $models = new ContentModelRepository($pdo);
             $pdo->beginTransaction();
             try {
                 $postId = $repo->savePost($id, $categoryId, $input['title'], $input['slug'], $input['body'], $input['status']);
                 $repo->setVisibility($postId, $input['visibility']);
                 $tags->setForPost($postId, $rawTags);
                 $media->setCover($postId, $coverId);
+                $models->setValuesForPost($postId, $categoryId, $input['extra']);
                 $pdo->commit();
             } catch (Throwable $error) {
                 $pdo->rollBack();
@@ -542,7 +567,139 @@ final class App
         } catch (PDOException $error) {
             $message = '保存失败，请检查文章别名是否重复。';
         }
-        View::render('admin/post-form', $base + array('page_title' => $id === null ? '新建文章' : '编辑文章', 'post' => $input + array('id' => $id), 'categories' => $repo->categories(), 'tags' => (new TagRepository($pdo))->all(), 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'selected_tags' => $selectedTags, 'error' => $message), 422);
+        View::render('admin/post-form', $base + array('page_title' => $id === null ? '新建文章' : '编辑文章', 'post' => $input + array('id' => $id), 'categories' => $repo->categories(), 'tags' => (new TagRepository($pdo))->all(), 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'selected_tags' => $selectedTags, 'extra_values' => is_array($input['extra']) ? $input['extra'] : array(), 'model_form' => self::postModelForm(new ContentModelRepository($pdo), $repo, $input), 'error' => $message), 422);
+    }
+
+    private static function postModelForm(ContentModelRepository $models, ContentRepository $repo, ?array $post): array
+    {
+        $defaultId = (int) $models->defaultModel()['id'];
+        $categoryModels = array();
+        foreach ($repo->categories() as $category) {
+            $categoryModels[(int) $category['id']] = (int) ($category['model_id'] ?: $defaultId);
+        }
+        $activeCategory = (int) ($post['category_id'] ?? 0);
+        $fields = array();
+        foreach ($models->all() as $model) {
+            $fields[(int) $model['id']] = $models->fields((int) $model['id']);
+        }
+        return array('default_id' => $defaultId, 'category_models' => $categoryModels, 'active_id' => $categoryModels[$activeCategory] ?? $defaultId, 'fields' => $fields);
+    }
+
+    private function modelAdminRoute(string $path, string $method, ContentModelRepository $models, array $base): void
+    {
+        if ($path === '/admin/models' && $method === 'GET') {
+            View::render('admin/models', $base + array('page_title' => '内容模型', 'models' => $models->all()));
+            return;
+        }
+        if ($path === '/admin/models/new' && $method === 'GET') {
+            View::render('admin/model-form', $base + array('page_title' => '新建模型', 'model' => null, 'fields' => array(), 'error' => null));
+            return;
+        }
+        if ($path === '/admin/models' && $method === 'POST') {
+            $this->saveContentModel($models, null, $base);
+            return;
+        }
+        if (preg_match('#^/admin/models/([1-9][0-9]*)/edit$#D', $path, $match)) {
+            $id = (int) $match[1];
+            $model = $models->model($id);
+            if ($model === null) {
+                $this->notFound();
+            }
+            if ($method === 'GET') {
+                View::render('admin/model-form', $base + array('page_title' => '编辑模型', 'model' => $model, 'fields' => $models->fields($id), 'error' => null));
+            } elseif ($method === 'POST') {
+                $this->saveContentModel($models, $id, $base);
+            } else {
+                $this->notFound();
+            }
+            return;
+        }
+        if (preg_match('#^/admin/models/([1-9][0-9]*)/delete$#D', $path, $match) && $method === 'POST') {
+            $this->requireCsrf();
+            try {
+                $models->deleteModel((int) $match[1]);
+                $_SESSION['flash'] = '内容模型已删除。';
+            } catch (InvalidArgumentException $error) {
+                $_SESSION['flash'] = '操作失败：' . $error->getMessage();
+            }
+            $this->redirect('/admin/models');
+        }
+        if (preg_match('#^/admin/models/([1-9][0-9]*)/fields/new$#D', $path, $match)) {
+            $model = $models->model((int) $match[1]);
+            if ($model === null) {
+                $this->notFound();
+            }
+            if ($method === 'GET') {
+                View::render('admin/model-field-form', $base + array('page_title' => '新建扩展字段', 'model' => $model, 'field' => null, 'error' => null));
+            } elseif ($method === 'POST') {
+                $this->saveModelField($models, $model, null, $base);
+            } else {
+                $this->notFound();
+            }
+            return;
+        }
+        if (preg_match('#^/admin/models/([1-9][0-9]*)/fields/([1-9][0-9]*)/edit$#D', $path, $match)) {
+            $model = $models->model((int) $match[1]);
+            $field = $models->field((int) $match[2]);
+            if ($model === null || $field === null || (int) $field['model_id'] !== (int) $model['id']) {
+                $this->notFound();
+            }
+            if ($method === 'GET') {
+                View::render('admin/model-field-form', $base + array('page_title' => '编辑扩展字段', 'model' => $model, 'field' => $field, 'error' => null));
+            } elseif ($method === 'POST') {
+                $this->saveModelField($models, $model, (int) $field['id'], $base);
+            } else {
+                $this->notFound();
+            }
+            return;
+        }
+        if (preg_match('#^/admin/models/([1-9][0-9]*)/fields/([1-9][0-9]*)/delete$#D', $path, $match) && $method === 'POST') {
+            $this->requireCsrf();
+            try {
+                $models->deleteField((int) $match[1], (int) $match[2]);
+                $_SESSION['flash'] = '扩展字段已删除。';
+            } catch (InvalidArgumentException $error) {
+                $_SESSION['flash'] = '操作失败：' . $error->getMessage();
+            }
+            $this->redirect('/admin/models/' . (int) $match[1] . '/edit');
+        }
+        $this->notFound();
+    }
+
+    private function saveContentModel(ContentModelRepository $models, ?int $id, array $base): void
+    {
+        $this->requireCsrf();
+        $input = array('id' => $id, 'name' => self::postString('name'), 'slug' => self::postString('slug'));
+        try {
+            $models->saveModel($id, $input['name'], $input['slug']);
+            $_SESSION['flash'] = '内容模型已保存。';
+            $this->redirect('/admin/models');
+        } catch (InvalidArgumentException $error) {
+            $message = $error->getMessage();
+        } catch (PDOException $error) {
+            $message = '模型标识已存在。';
+        }
+        View::render('admin/model-form', $base + array('page_title' => $id === null ? '新建模型' : '编辑模型', 'model' => $input, 'fields' => $id === null ? array() : $models->fields($id), 'error' => $message), 422);
+    }
+
+    private function saveModelField(ContentModelRepository $models, array $model, ?int $id, array $base): void
+    {
+        $this->requireCsrf();
+        $input = array('id' => $id, 'model_id' => $model['id'], 'name' => self::postString('name'), 'label' => self::postString('label'), 'field_type' => self::postString('field_type'), 'options_text' => self::postString('options_text'), 'is_required' => isset($_POST['is_required']) ? 1 : 0, 'sort_order' => self::postString('sort_order'));
+        try {
+            $sortOrder = filter_var($input['sort_order'], FILTER_VALIDATE_INT);
+            if ($sortOrder === false) {
+                throw new InvalidArgumentException('字段排序必须是整数。');
+            }
+            $models->saveField($id, (int) $model['id'], $input['name'], $input['label'], $input['field_type'], $input['options_text'], (bool) $input['is_required'], $sortOrder);
+            $_SESSION['flash'] = '扩展字段已保存。';
+            $this->redirect('/admin/models/' . (int) $model['id'] . '/edit');
+        } catch (InvalidArgumentException $error) {
+            $message = $error->getMessage();
+        } catch (PDOException $error) {
+            $message = '字段标识已存在。';
+        }
+        View::render('admin/model-field-form', $base + array('page_title' => $id === null ? '新建扩展字段' : '编辑扩展字段', 'model' => $model, 'field' => $input, 'error' => $message), 422);
     }
 
     private function tagAdminRoute(string $path, string $method, TagRepository $tags, array $base): void

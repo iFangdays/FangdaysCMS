@@ -92,7 +92,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             },
         )
         assert status == 200 and "后台登录" in login, login[:400]
-        assert "schema version 5 is ready" in command(site / "bin/migrate.php")
+        assert "schema version 6 is ready" in command(site / "bin/migrate.php")
         status, unlicensed = request("/")
         assert status == 503 and "尚未获得有效授权" in unlicensed
 
@@ -291,6 +291,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             "_csrf": csrf(reviewer_dashboard), "post_ids[]": "1", "action": "delete"
         }, client=reviewer)[0] == 403
         assert request("/admin/tags", client=reviewer)[0] == 403
+        assert request("/admin/models", client=reviewer)[0] == 403
         assert request("/admin/members", client=reviewer)[0] == 403
         assert request("/admin/posts", {"_csrf": csrf(reviewer_dashboard), "title": "非法"}, client=reviewer)[0] == 403
         status, edit_role = request(f"/admin/roles/{role_id}/edit")
@@ -314,6 +315,65 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         assert status == 200 and "第一篇文章" in category
         status, protected = request("/config/app.php")
         assert "password" not in protected and "license_public_keys" not in protected
+
+        status, model_form = request("/admin/models/new")
+        assert status == 200 and "模型标识" in model_form
+        status, model_list = request("/admin/models", {
+            "_csrf": csrf(model_form), "name": "产品模型", "slug": "product"
+        })
+        assert status == 200 and "产品模型" in model_list
+        model_id = re.search(r'产品模型.*?/admin/models/(\d+)/edit', model_list, re.S).group(1)
+        status, field_form = request(f"/admin/models/{model_id}/fields/new")
+        assert status == 200 and "新建扩展字段" in field_form
+        status, model_edit = request(f"/admin/models/{model_id}/fields/new", {
+            "_csrf": csrf(field_form), "name": "ext_color", "label": "颜色",
+            "field_type": "select", "options_text": "红色,蓝色", "is_required": "1", "sort_order": "1"
+        })
+        assert status == 200 and "扩展字段已保存" in model_edit
+        field_id = re.search(r'/fields/(\d+)/edit', model_edit).group(1)
+        status, category_edit = request("/admin/categories/1/edit")
+        assert status == 200
+        status, category_list = request("/admin/categories/1/edit", {
+            "_csrf": csrf(category_edit), "name": "新闻", "slug": "news",
+            "sort_order": "1", "model_id": model_id
+        })
+        assert status == 200 and "产品模型" in category_list
+        status, post_edit = request("/admin/posts/1/edit")
+        assert status == 200 and 'name="extra[' + field_id + ']"' in post_edit
+        update = {
+            "_csrf": csrf(post_edit), "title": "第一篇文章", "slug": "first-post",
+            "category_id": "1", "body": "产品正文", "status": "published",
+            "visibility": "public", "tag_ids[]": tag_id, "cover_media_id": image_id,
+            f"extra[{field_id}]": "红色"
+        }
+        status, updated_post = request("/admin/posts/1/edit", update)
+        assert status == 200 and "文章已保存" in updated_post
+        status, product_article = request("/post/first-post")
+        assert status == 200 and "颜色" in product_article and "红色" in product_article
+        status, field_search = request("/search?q=%E7%BA%A2%E8%89%B2")
+        assert status == 200 and "第一篇文章" in field_search
+        status, admin_field_search = request("/admin/posts?q=%E7%BA%A2%E8%89%B2")
+        assert status == 200 and "第一篇文章" in admin_field_search
+        status, invalid_field = request("/admin/posts/1/edit", update | {f"extra[{field_id}]": "绿色"})
+        assert status == 422 and "未定义的选项" in invalid_field
+        assert "红色" in request("/post/first-post")[1]
+        status, field_edit = request(f"/admin/models/{model_id}/fields/{field_id}/edit")
+        assert status == 200 and "颜色" in field_edit
+        status, renamed_field = request(f"/admin/models/{model_id}/fields/{field_id}/edit", {
+            "_csrf": csrf(field_edit), "name": "ext_color", "label": "商品颜色",
+            "field_type": "select", "options_text": "红色,蓝色", "is_required": "1", "sort_order": "1"
+        })
+        assert status == 200 and "商品颜色" in renamed_field
+        status, deleted_field = request(f"/admin/models/{model_id}/fields/{field_id}/delete", {"_csrf": csrf(renamed_field)})
+        assert status == 200 and "扩展字段已删除" in deleted_field
+        status, category_edit = request("/admin/categories/1/edit")
+        status, rebound_category = request("/admin/categories/1/edit", {
+            "_csrf": csrf(category_edit), "name": "新闻", "slug": "news", "sort_order": "1", "model_id": "1"
+        })
+        assert status == 200 and "栏目已保存" in rebound_category
+        status, model_list = request("/admin/models")
+        status, deleted_model = request(f"/admin/models/{model_id}/delete", {"_csrf": csrf(model_list)})
+        assert status == 200 and "内容模型已删除" in deleted_model
 
         print("FangdaysCMS HTTP install, admin, license, and public-site smoke test passed")
         if os.environ.get("FANGDAYS_PREVIEW") == "1":

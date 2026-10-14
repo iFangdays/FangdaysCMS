@@ -9,6 +9,7 @@ if (PHP_SAPI !== 'cli') {
 require dirname(__DIR__) . '/autoload.php';
 
 use FangdaysCMS\Cms\ContentRepository;
+use FangdaysCMS\Cms\ContentModelRepository;
 use FangdaysCMS\Cms\Database;
 use FangdaysCMS\Cms\Installer;
 use FangdaysCMS\Cms\Migrator;
@@ -78,6 +79,41 @@ try {
     check((int) $repo->categoriesWithPostCounts()[0]['post_count'] === 1, 'Category post count failed.');
     $repo->deleteCategory($categoryId);
     check($repo->post($postId)['category_id'] === null, 'Deleting category should keep its articles.');
+    $models = new ContentModelRepository($pdo);
+    check($models->defaultModel()['slug'] === 'article', 'Default content model is missing.');
+    $productModel = $models->saveModel(null, '产品模型', 'product');
+    $colorField = $models->saveField(null, $productModel, 'ext_color', '颜色', 'select', "红色\n蓝色", true, 1);
+    $sizeField = $models->saveField(null, $productModel, 'ext_sizes', '尺码', 'multi', 'S,M,L', false, 2);
+    $productCategory = $repo->saveCategory(null, '产品', 'products', 2);
+    $models->bindCategory($productCategory, $productModel);
+    check((int) $models->modelForCategory($productCategory)['id'] === $productModel, 'Category model binding failed.');
+    $productPost = $repo->savePost(null, $productCategory, '测试产品', 'test-product', '产品正文', 'draft');
+    $models->setValuesForPost($productPost, $productCategory, array($colorField => '红色', $sizeField => array('S', 'M')));
+    check($models->valuesForPost($productPost)[$sizeField] === 'S,M', 'Multiple choice values were not saved.');
+    check($models->publicFieldsForPost($productPost, $productCategory)[0]['value'] === '红色', 'Model field was not exposed to the public post.');
+    check($repo->countPosts('draft', null, true, null, '红色') === 1, 'Current model field was not searchable.');
+    try {
+        $models->setValuesForPost($productPost, $productCategory, array($colorField => '绿色'));
+        throw new RuntimeException('Undefined model option was accepted.');
+    } catch (InvalidArgumentException $error) {
+        check(str_contains($error->getMessage(), '未定义'), 'Undefined model option failed for the wrong reason.');
+    }
+    check($models->valuesForPost($productPost)[$colorField] === '红色', 'Invalid input changed saved fields.');
+    $repo->savePost($productPost, null, '测试产品', 'test-product', '产品正文', 'draft');
+    $models->setValuesForPost($productPost, null, array());
+    check($models->valuesForPost($productPost)[$colorField] === '红色', 'Switching model erased the previous field value.');
+    check($repo->countPosts('draft', null, true, null, '红色') === 0, 'Inactive model field appeared in search.');
+    try {
+        $models->deleteModel($productModel);
+        throw new RuntimeException('Bound model was deleted.');
+    } catch (InvalidArgumentException $error) {
+        check(str_contains($error->getMessage(), '栏目'), 'Bound model deletion failed for the wrong reason.');
+    }
+    $models->saveField($colorField, $productModel, 'ext_color', '商品颜色', 'select', '红色,蓝色', true, 1);
+    check($models->field($colorField)['label'] === '商品颜色', 'Model field update failed.');
+    $models->bindCategory($productCategory, (int) $models->defaultModel()['id']);
+    $models->deleteModel($productModel);
+    check($models->model($productModel) === null && $models->valuesForPost($productPost) === array(), 'Model deletion did not clear field definitions and values.');
     $tags = new TagRepository($pdo);
     $tagId = $tags->save(null, '专题', 'topic');
     $tags->setForPost($postId, array($tagId));
@@ -157,14 +193,21 @@ try {
     $legacy->exec("INSERT INTO users VALUES (7, 'old-admin', 'hash', 1)");
     $legacy->exec("INSERT INTO posts VALUES (9, NULL, '旧文章', 'legacy', '正文', 'published', 1, 1)");
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 5, 'Legacy schema version was not upgraded.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 6, 'Legacy schema version was not upgraded.');
     check((int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Legacy content was lost.');
     check((new AccessRepository($legacy))->admins()[0]['role_slug'] === 'owner', 'Legacy administrator was not migrated.');
     $legacy->exec('DROP TABLE pages');
     $legacy->exec('DROP TABLE site_settings');
     $legacy->exec('UPDATE cms_schema SET version = 2 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 5 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 2 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 6 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 2 failed.');
+    $legacy->exec('DROP TABLE post_field_values');
+    $legacy->exec('DROP TABLE category_models');
+    $legacy->exec('DROP TABLE model_fields');
+    $legacy->exec('DROP TABLE content_models');
+    $legacy->exec('UPDATE cms_schema SET version = 5 WHERE id = 1');
+    Migrator::ensure($legacy);
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 6 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1 && (new ContentModelRepository($legacy))->defaultModel()['slug'] === 'article', 'Upgrade from schema version 5 failed.');
 
     $pages = new PageRepository($pdo);
     $pageId = $pages->save(null, '关于', 'about', '简介', 'draft', 5);
@@ -204,7 +247,7 @@ try {
         check(str_contains($error->getMessage(), '已经安装'), 'Quickstart failed for the wrong reason.');
     }
 
-    echo "FangdaysCMS quickstart, installer, migration, content, membership, RBAC, and licensing tests passed\n";
+    echo "FangdaysCMS quickstart, installer, migration, content models, membership, RBAC, and licensing tests passed\n";
 } finally {
     removeTestDirectory($root);
 }
