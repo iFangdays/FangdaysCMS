@@ -86,6 +86,20 @@ try {
     check(count($repo->rootCategories()) === 1 && count($repo->childCategories($categoryId)) === 1, 'Category hierarchy listing failed.');
     check($repo->countPosts('published', $categoryId) === 2 && count($repo->posts('published', $categoryId)) === 2, 'Parent category did not include descendant posts.');
     check((int) $repo->categoriesWithPostCounts()[0]['post_count'] === 2, 'Parent category count omitted descendant posts.');
+    $repo->savePostMeta($postId, array('subtitle' => '内容副标题', 'author' => '编辑部', 'source' => '本站', 'title_color' => '#176c73', 'outlink' => '/search', 'seo_keywords' => '测试关键词', 'seo_description' => '摘要内容', 'is_top' => '1', 'is_recommended' => '1', 'is_headline' => '0'));
+    check($repo->publishedPostBySlug('first-post')['subtitle'] === '内容副标题' && $repo->post($postId)['seo_description'] === '摘要内容', 'Post metadata was not saved.');
+    check(View::postLink($repo->post($postId)) === '/search', 'Post external link failed.');
+    check((int) $repo->posts('published', $categoryId)[0]['id'] === $postId, 'Pinned article did not sort first.');
+    check($repo->countPosts('published', null, true, null, null, 'top') === 1 && $repo->countPosts('published', null, true, null, '编辑部') === 1, 'Post metadata filtering or search failed.');
+    foreach (array('javascript:alert(1)', '//example.com', '/post/first-post') as $unsafeLink) {
+        try {
+            $repo->savePostMeta($postId, array('outlink' => $unsafeLink));
+            throw new RuntimeException('Unsafe post link was accepted.');
+        } catch (InvalidArgumentException $error) {
+            check(str_contains($error->getMessage(), '跳转链接'), 'Unsafe post link failed for the wrong reason.');
+        }
+    }
+    check($repo->post($postId)['outlink'] === '/search', 'Invalid metadata replaced the saved link.');
     try {
         $repo->saveCategory($categoryId, '新闻', 'news', 1, $grandchildCategory);
         throw new RuntimeException('Category cycle was accepted.');
@@ -250,27 +264,32 @@ try {
     $legacy->exec("INSERT INTO users VALUES (7, 'old-admin', 'hash', 1)");
     $legacy->exec("INSERT INTO posts VALUES (9, NULL, '旧文章', 'legacy', '正文', 'published', 1, 1)");
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 8, 'Legacy schema version was not upgraded.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 9, 'Legacy schema version was not upgraded.');
     check(in_array('parent_id', array_column($legacy->query('PRAGMA table_info(categories)')->fetchAll(), 'name'), true), 'Legacy categories did not gain a parent column.');
     check((int) $legacy->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'category_settings'")->fetchColumn() === 1, 'Legacy schema did not gain category settings.');
+    check((int) $legacy->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'post_meta'")->fetchColumn() === 1, 'Legacy schema did not gain post metadata.');
     check((int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Legacy content was lost.');
     check((new AccessRepository($legacy))->admins()[0]['role_slug'] === 'owner', 'Legacy administrator was not migrated.');
     $legacy->exec('DROP TABLE pages');
     $legacy->exec('DROP TABLE site_settings');
     $legacy->exec('UPDATE cms_schema SET version = 2 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 8 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 2 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 9 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 2 failed.');
     $legacy->exec('DROP TABLE post_field_values');
     $legacy->exec('DROP TABLE category_models');
     $legacy->exec('DROP TABLE model_fields');
     $legacy->exec('DROP TABLE content_models');
     $legacy->exec('UPDATE cms_schema SET version = 5 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 8 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1 && (new ContentModelRepository($legacy))->defaultModel()['slug'] === 'article', 'Upgrade from schema version 5 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 9 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1 && (new ContentModelRepository($legacy))->defaultModel()['slug'] === 'article', 'Upgrade from schema version 5 failed.');
     $legacy->exec('DROP TABLE category_settings');
     $legacy->exec('UPDATE cms_schema SET version = 7 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 8 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 7 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 9 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 7 failed.');
+    $legacy->exec('DROP TABLE post_meta');
+    $legacy->exec('UPDATE cms_schema SET version = 8 WHERE id = 1');
+    Migrator::ensure($legacy);
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 9 && (new ContentRepository($legacy))->publishedPostBySlug('legacy')['title'] === '旧文章', 'Upgrade from schema version 8 failed.');
 
     $pages = new PageRepository($pdo);
     $pageId = $pages->save(null, '关于', 'about', '简介', 'draft', 5);

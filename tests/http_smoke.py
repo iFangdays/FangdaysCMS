@@ -92,7 +92,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             },
         )
         assert status == 200 and "后台登录" in login, login[:400]
-        assert "schema version 8 is ready" in command(site / "bin/migrate.php")
+        assert "schema version 9 is ready" in command(site / "bin/migrate.php")
         status, unlicensed = request("/")
         assert status == 503 and "尚未获得有效授权" in unlicensed
 
@@ -344,12 +344,26 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             "_csrf": csrf(post_edit), "title": "第一篇文章", "slug": "first-post",
             "category_id": "1", "body": "产品正文", "status": "published",
             "visibility": "public", "tag_ids[]": tag_id, "cover_media_id": image_id,
+            "subtitle": "重要副标题", "author": "编辑部", "source": "本站",
+            "title_color": "#176c73", "seo_keywords": "内容,专题",
+            "seo_description": "文章摘要内容", "is_top": "1",
+            "is_recommended": "1", "is_headline": "0",
             f"extra[{field_id}]": "红色"
         }
         status, updated_post = request("/admin/posts/1/edit", update)
         assert status == 200 and "文章已保存" in updated_post
         status, product_article = request("/post/first-post")
         assert status == 200 and "颜色" in product_article and "红色" in product_article
+        assert "重要副标题" in product_article and "作者：编辑部" in product_article and "来源：本站" in product_article
+        assert 'name="keywords" content="内容,专题"' in product_article
+        assert 'name="description" content="文章摘要内容"' in product_article
+        assert 'style="color:#176c73"' in product_article
+        assert "第一篇文章" in request("/admin/posts?feature=top")[1]
+        assert "会员专享" not in request("/admin/posts?feature=top")[1]
+        assert "第一篇文章" in request("/search?q=%E7%BC%96%E8%BE%91%E9%83%A8")[1]
+        status, invalid_color = request("/admin/posts/1/edit", update | {"title_color": "red<script>"})
+        assert status == 422 and "标题颜色须为" in invalid_color
+        assert 'style="color:#176c73"' in request("/post/first-post")[1]
         status, field_search = request("/search?q=%E7%BA%A2%E8%89%B2")
         assert status == 200 and "第一篇文章" in field_search
         status, admin_field_search = request("/admin/posts?q=%E7%BA%A2%E8%89%B2")
@@ -395,6 +409,8 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             "category_id": grandchild_id, "body": "子栏目正文", "status": "published", "visibility": "public"
         })
         assert status == 200 and "层级文章" in nested_list
+        home_with_priority = request("/")[1]
+        assert home_with_priority.index("第一篇文章") < home_with_priority.index("层级文章")
         status, parent_page = request("/category/news")
         assert status == 200 and "层级文章" in parent_page and "/category/company-news" in parent_page
         status, child_page = request("/category/company-news")
@@ -477,7 +493,37 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         except urllib.error.HTTPError as error:
             assert error.code == 302 and error.headers["Location"] == "/search"
 
-        print("FangdaysCMS HTTP install, admin, category types and SEO, license, and public-site smoke test passed")
+        status, link_post_form = request("/admin/posts/new")
+        status, link_post_list = request("/admin/posts", {
+            "_csrf": csrf(link_post_form), "title": "跳转文章", "slug": "redirect-post",
+            "category_id": "1", "body": "保留正文", "status": "published",
+            "visibility": "public", "outlink": "/search",
+        })
+        assert status == 200 and "跳转文章" in link_post_list
+        assert 'href="/search">跳转文章</a>' in request("/")[1]
+        try:
+            urllib.request.build_opener(NoRedirect()).open(base + "/post/redirect-post", timeout=5)
+            raise AssertionError("Post outlink did not redirect")
+        except urllib.error.HTTPError as error:
+            assert error.code == 302 and error.headers["Location"] == "/search"
+        status, bad_post_form = request("/admin/posts/new")
+        status, bad_post_link = request("/admin/posts", {
+            "_csrf": csrf(bad_post_form), "title": "不安全文章", "slug": "bad-post-link",
+            "body": "正文", "status": "published", "outlink": "javascript:alert(1)",
+        })
+        assert status == 422 and "文章跳转链接须为" in bad_post_link
+        assert "bad-post-link" not in request("/")[1]
+        status, member_outlink_form = request("/admin/posts/2/edit")
+        status, member_outlink_saved = request("/admin/posts/2/edit", {
+            "_csrf": csrf(member_outlink_form), "title": "会员专享", "slug": "members-only",
+            "category_id": "1", "body": "内部正文", "status": "published",
+            "visibility": "members", "outlink": "/search",
+        })
+        assert status == 200 and "文章已保存" in member_outlink_saved
+        stranger = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        assert request("/post/members-only", client=stranger)[0] == 403
+
+        print("FangdaysCMS HTTP install, admin, post metadata, category types, license, and public-site smoke test passed")
         if os.environ.get("FANGDAYS_PREVIEW") == "1":
             print(f"Preview running at {base}", flush=True)
             input("Press Enter to stop preview: ")

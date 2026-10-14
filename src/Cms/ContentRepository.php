@@ -8,6 +8,8 @@ use PDO;
 
 final class ContentRepository
 {
+    private const POST_META_SELECT = "COALESCE(pm.subtitle, '') AS subtitle, COALESCE(pm.author, '') AS author, COALESCE(pm.source, '') AS source, COALESCE(pm.title_color, '') AS title_color, COALESCE(pm.outlink, '') AS outlink, COALESCE(pm.seo_keywords, '') AS seo_keywords, COALESCE(pm.seo_description, '') AS seo_description, COALESCE(pm.is_top, 0) AS is_top, COALESCE(pm.is_recommended, 0) AS is_recommended, COALESCE(pm.is_headline, 0) AS is_headline";
+
     public function __construct(private readonly PDO $pdo)
     {
     }
@@ -120,12 +122,7 @@ final class ContentRepository
             }
         }
         if ($type === 'link') {
-            $parts = parse_url($outlink);
-            $absolute = $parts !== false && in_array(strtolower($parts['scheme'] ?? ''), array('http', 'https'), true)
-                && ! empty($parts['host']) && ! isset($parts['user']) && ! isset($parts['pass'])
-                && filter_var($outlink, FILTER_VALIDATE_URL) !== false;
-            $relative = (bool) preg_match('~^/(?!/)[^\x00-\x20\x7f\\\\]*$~D', $outlink);
-            if (strlen($outlink) > 2048 || (! $absolute && ! $relative)) {
+            if (! self::validRedirectTarget($outlink)) {
                 throw new InvalidArgumentException('跳转链接须为 http(s) 地址或站内绝对路径。');
             }
             $category = $this->category($categoryId);
@@ -226,14 +223,14 @@ final class ContentRepository
         return $result;
     }
 
-    public function posts(?string $status = null, ?int $categoryId = null, bool $includeMembers = false, ?int $tagId = null, ?string $query = null, int $page = 1): array
+    public function posts(?string $status = null, ?int $categoryId = null, bool $includeMembers = false, ?int $tagId = null, ?string $query = null, int $page = 1, ?string $feature = null): array
     {
-        [$where, $params] = $this->postFilters($status, $categoryId, $includeMembers, $tagId, $query);
-        $sql = "SELECT p.id, p.category_id, p.title, p.slug, p.body, p.status, p.created_at, p.updated_at, c.name AS category_name, COALESCE(v.visibility, 'public') AS visibility, m.path AS cover_path FROM posts p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN post_visibility v ON v.post_id = p.id LEFT JOIN post_cover pc ON pc.post_id = p.id LEFT JOIN media m ON m.id = pc.media_id";
+        [$where, $params] = $this->postFilters($status, $categoryId, $includeMembers, $tagId, $query, $feature);
+        $sql = "SELECT p.id, p.category_id, p.title, p.slug, p.body, p.status, p.created_at, p.updated_at, c.name AS category_name, COALESCE(v.visibility, 'public') AS visibility, m.path AS cover_path, " . self::POST_META_SELECT . " FROM posts p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN post_visibility v ON v.post_id = p.id LEFT JOIN post_cover pc ON pc.post_id = p.id LEFT JOIN media m ON m.id = pc.media_id LEFT JOIN post_meta pm ON pm.post_id = p.id";
         if ($where) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
         }
-        $sql .= ' ORDER BY p.created_at DESC, p.id DESC LIMIT ? OFFSET ?';
+        $sql .= ' ORDER BY COALESCE(pm.is_top, 0) DESC, COALESCE(pm.is_recommended, 0) DESC, COALESCE(pm.is_headline, 0) DESC, p.created_at DESC, p.id DESC LIMIT ? OFFSET ?';
         $stmt = $this->pdo->prepare($sql);
         foreach ($params as $index => $param) {
             $stmt->bindValue($index + 1, $param);
@@ -244,10 +241,10 @@ final class ContentRepository
         return $stmt->fetchAll();
     }
 
-    public function countPosts(?string $status = null, ?int $categoryId = null, bool $includeMembers = false, ?int $tagId = null, ?string $query = null): int
+    public function countPosts(?string $status = null, ?int $categoryId = null, bool $includeMembers = false, ?int $tagId = null, ?string $query = null, ?string $feature = null): int
     {
-        [$where, $params] = $this->postFilters($status, $categoryId, $includeMembers, $tagId, $query);
-        $sql = 'SELECT COUNT(*) FROM posts p LEFT JOIN post_visibility v ON v.post_id = p.id';
+        [$where, $params] = $this->postFilters($status, $categoryId, $includeMembers, $tagId, $query, $feature);
+        $sql = 'SELECT COUNT(*) FROM posts p LEFT JOIN post_visibility v ON v.post_id = p.id LEFT JOIN post_meta pm ON pm.post_id = p.id';
         if ($where) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
         }
@@ -258,14 +255,14 @@ final class ContentRepository
 
     public function post(int $id): ?array
     {
-        $stmt = $this->pdo->prepare("SELECT p.id, p.category_id, p.title, p.slug, p.body, p.status, p.created_at, p.updated_at, COALESCE(v.visibility, 'public') AS visibility, pc.media_id AS cover_media_id FROM posts p LEFT JOIN post_visibility v ON v.post_id = p.id LEFT JOIN post_cover pc ON pc.post_id = p.id WHERE p.id = ?");
+        $stmt = $this->pdo->prepare("SELECT p.id, p.category_id, p.title, p.slug, p.body, p.status, p.created_at, p.updated_at, COALESCE(v.visibility, 'public') AS visibility, pc.media_id AS cover_media_id, " . self::POST_META_SELECT . " FROM posts p LEFT JOIN post_visibility v ON v.post_id = p.id LEFT JOIN post_cover pc ON pc.post_id = p.id LEFT JOIN post_meta pm ON pm.post_id = p.id WHERE p.id = ?");
         $stmt->execute(array($id));
         return $stmt->fetch() ?: null;
     }
 
     public function publishedPostBySlug(string $slug): ?array
     {
-        $stmt = $this->pdo->prepare("SELECT p.id, p.category_id, p.title, p.slug, p.body, p.status, p.created_at, p.updated_at, c.name AS category_name, c.slug AS category_slug, COALESCE(v.visibility, 'public') AS visibility, m.path AS cover_path FROM posts p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN post_visibility v ON v.post_id = p.id LEFT JOIN post_cover pc ON pc.post_id = p.id LEFT JOIN media m ON m.id = pc.media_id WHERE p.slug = ? AND p.status = 'published'");
+        $stmt = $this->pdo->prepare("SELECT p.id, p.category_id, p.title, p.slug, p.body, p.status, p.created_at, p.updated_at, c.name AS category_name, c.slug AS category_slug, COALESCE(v.visibility, 'public') AS visibility, m.path AS cover_path, " . self::POST_META_SELECT . " FROM posts p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN post_visibility v ON v.post_id = p.id LEFT JOIN post_cover pc ON pc.post_id = p.id LEFT JOIN media m ON m.id = pc.media_id LEFT JOIN post_meta pm ON pm.post_id = p.id WHERE p.slug = ? AND p.status = 'published'");
         $stmt->execute(array($slug));
         return $stmt->fetch() ?: null;
     }
@@ -292,6 +289,54 @@ final class ContentRepository
         $stmt = $this->pdo->prepare('UPDATE posts SET category_id = ?, title = ?, slug = ?, body = ?, status = ?, updated_at = ? WHERE id = ?');
         $stmt->execute(array($categoryId, $title, $slug, $body, $status, $now, $id));
         return $id;
+    }
+
+    public function savePostMeta(int $postId, array $attributes): void
+    {
+        $post = $this->post($postId);
+        if ($post === null) {
+            throw new InvalidArgumentException('文章不存在。');
+        }
+        $values = array();
+        foreach (array('subtitle' => 255, 'author' => 100, 'source' => 100, 'seo_keywords' => 255, 'seo_description' => 500) as $name => $limit) {
+            $value = $attributes[$name] ?? '';
+            if (! is_string($value) || mb_strlen(trim($value)) > $limit) {
+                throw new InvalidArgumentException('文章附加信息长度无效。');
+            }
+            $values[$name] = trim($value);
+        }
+        $color = $attributes['title_color'] ?? '';
+        if (! is_string($color) || ($color !== '' && ! preg_match('/^#[0-9a-fA-F]{6}$/D', $color))) {
+            throw new InvalidArgumentException('标题颜色须为六位十六进制色值。');
+        }
+        $values['title_color'] = strtolower($color);
+        $outlink = $attributes['outlink'] ?? '';
+        if (! is_string($outlink)) {
+            throw new InvalidArgumentException('文章跳转链接无效。');
+        }
+        $outlink = trim($outlink);
+        if ($outlink !== '' && (! self::validRedirectTarget($outlink) || $outlink === '/post/' . $post['slug'])) {
+            throw new InvalidArgumentException('文章跳转链接须为 http(s) 地址或站内绝对路径，且不能指向自身。');
+        }
+        $values['outlink'] = $outlink;
+        foreach (array('is_top', 'is_recommended', 'is_headline') as $name) {
+            $flag = $attributes[$name] ?? '0';
+            if (! in_array($flag, array('0', '1'), true)) {
+                throw new InvalidArgumentException('文章推荐属性无效。');
+            }
+            $values[$name] = (int) $flag;
+        }
+        $exists = $this->pdo->prepare('SELECT post_id FROM post_meta WHERE post_id = ?');
+        $exists->execute(array($postId));
+        $columns = array('subtitle', 'author', 'source', 'title_color', 'outlink', 'seo_keywords', 'seo_description', 'is_top', 'is_recommended', 'is_headline');
+        if ($exists->fetchColumn() === false) {
+            $stmt = $this->pdo->prepare('INSERT INTO post_meta (post_id, ' . implode(', ', $columns) . ') VALUES (' . implode(', ', array_fill(0, count($columns) + 1, '?')) . ')');
+            $stmt->execute(array_merge(array($postId), array_map(static fn (string $name) => $values[$name], $columns)));
+        } else {
+            $assignments = implode(', ', array_map(static fn (string $name): string => $name . ' = ?', $columns));
+            $stmt = $this->pdo->prepare('UPDATE post_meta SET ' . $assignments . ' WHERE post_id = ?');
+            $stmt->execute(array_merge(array_map(static fn (string $name) => $values[$name], $columns), array($postId)));
+        }
     }
 
     public function deletePost(int $id): void
@@ -345,7 +390,20 @@ final class ContentRepository
         }
     }
 
-    private function postFilters(?string $status, ?int $categoryId, bool $includeMembers, ?int $tagId, ?string $query): array
+    private static function validRedirectTarget(string $url): bool
+    {
+        if ($url === '' || strlen($url) > 2048) {
+            return false;
+        }
+        $parts = parse_url($url);
+        $absolute = $parts !== false && in_array(strtolower($parts['scheme'] ?? ''), array('http', 'https'), true)
+            && ! empty($parts['host']) && ! isset($parts['user']) && ! isset($parts['pass'])
+            && filter_var($url, FILTER_VALIDATE_URL) !== false;
+        $relative = (bool) preg_match('~^/(?!/)[^\x00-\x20\x7f\\\\]*$~D', $url);
+        return $absolute || $relative;
+    }
+
+    private function postFilters(?string $status, ?int $categoryId, bool $includeMembers, ?int $tagId, ?string $query, ?string $feature): array
     {
         $where = array();
         $params = array();
@@ -365,11 +423,18 @@ final class ContentRepository
             $where[] = 'EXISTS (SELECT 1 FROM post_tags pt WHERE pt.post_id = p.id AND pt.tag_id = ?)';
             $params[] = $tagId;
         }
+        if ($feature !== null) {
+            $column = array('top' => 'is_top', 'recommended' => 'is_recommended', 'headline' => 'is_headline')[$feature] ?? null;
+            if ($column === null) {
+                throw new InvalidArgumentException('文章属性筛选无效。');
+            }
+            $where[] = 'COALESCE(pm.' . $column . ', 0) = 1';
+        }
         if ($query !== null && trim($query) !== '') {
-            $where[] = "(p.title LIKE ? OR p.body LIKE ? OR EXISTS (SELECT 1 FROM post_field_values pf JOIN posts active_post ON active_post.id = pf.post_id JOIN model_fields mf ON mf.id = pf.field_id LEFT JOIN category_models cm ON cm.category_id = active_post.category_id WHERE pf.post_id = p.id AND mf.model_id = COALESCE(cm.model_id, (SELECT id FROM content_models WHERE slug = 'article')) AND pf.value LIKE ?))";
-            $params[] = '%' . trim($query) . '%';
-            $params[] = '%' . trim($query) . '%';
-            $params[] = '%' . trim($query) . '%';
+            $where[] = "(p.title LIKE ? OR p.body LIKE ? OR pm.subtitle LIKE ? OR pm.author LIKE ? OR pm.source LIKE ? OR pm.seo_keywords LIKE ? OR EXISTS (SELECT 1 FROM post_field_values pf JOIN posts active_post ON active_post.id = pf.post_id JOIN model_fields mf ON mf.id = pf.field_id LEFT JOIN category_models cm ON cm.category_id = active_post.category_id WHERE pf.post_id = p.id AND mf.model_id = COALESCE(cm.model_id, (SELECT id FROM content_models WHERE slug = 'article')) AND pf.value LIKE ?))";
+            for ($i = 0; $i < 7; $i++) {
+                $params[] = '%' . trim($query) . '%';
+            }
         }
         return array($where, $params);
     }

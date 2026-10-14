@@ -7,6 +7,7 @@
     <label>关键词<input class="layui-input" type="search" name="q" maxlength="100" placeholder="搜索标题、正文或扩展字段" value="<?= \FangdaysCMS\Cms\View::e($filters['q']) ?>"></label>
     <label>栏目<select name="category_id"><option value="">全部栏目</option><?php foreach ($categories as $category): ?><option value="<?= (int) $category['id'] ?>" <?= (string) $filters['category_id'] === (string) $category['id'] ? 'selected' : '' ?>><?= \FangdaysCMS\Cms\View::e(str_repeat('— ', min(12, (int) $category['depth'])) . $category['name']) ?></option><?php endforeach; ?></select></label>
     <label>状态<select name="status"><option value="">全部状态</option><option value="published" <?= $filters['status'] === 'published' ? 'selected' : '' ?>>已发布</option><option value="draft" <?= $filters['status'] === 'draft' ? 'selected' : '' ?>>草稿</option></select></label>
+    <label>展示属性<select name="feature"><option value="">全部属性</option><option value="top" <?= $filters['feature'] === 'top' ? 'selected' : '' ?>>置顶</option><option value="recommended" <?= $filters['feature'] === 'recommended' ? 'selected' : '' ?>>推荐</option><option value="headline" <?= $filters['feature'] === 'headline' ? 'selected' : '' ?>>头条</option></select></label>
     <div class="admin-filter-actions"><button class="layui-btn" type="submit"><i class="fa fa-search" aria-hidden="true"></i> 搜索</button><a class="layui-btn layui-btn-primary" href="/admin/posts">清除搜索</a></div>
   </form>
 </section>
@@ -25,12 +26,12 @@
           <?php if ($can['content.manage']): ?><td data-label="选择"><input type="checkbox" name="post_ids[]" value="<?= (int) $post['id'] ?>" aria-label="选择文章 <?= \FangdaysCMS\Cms\View::e($post['title']) ?>"></td><?php endif; ?>
           <td data-label="ID"><?= (int) $post['id'] ?></td>
           <td data-label="栏目"><?= \FangdaysCMS\Cms\View::e($post['category_name'] ?? '未分类') ?></td>
-          <td data-label="标题" class="admin-title-cell"><span class="admin-cell-value"><strong><?= \FangdaysCMS\Cms\View::e($post['title']) ?></strong><small>/post/<?= \FangdaysCMS\Cms\View::e($post['slug']) ?></small></span></td>
+          <td data-label="标题" class="admin-title-cell"><span class="admin-cell-value"><strong<?= $post['title_color'] !== '' ? ' style="color:' . \FangdaysCMS\Cms\View::e($post['title_color']) . '"' : '' ?>><?= \FangdaysCMS\Cms\View::e($post['title']) ?></strong><?php if ($post['is_top']): ?><small>置顶</small><?php endif; ?><?php if ($post['is_recommended']): ?><small>推荐</small><?php endif; ?><?php if ($post['is_headline']): ?><small>头条</small><?php endif; ?><small>/post/<?= \FangdaysCMS\Cms\View::e($post['slug']) ?></small></span></td>
           <td data-label="更新时间"><?= date('Y-m-d H:i', (int) $post['updated_at']) ?></td>
           <td data-label="状态"><span class="badge <?= $post['status'] === 'published' ? 'badge-success' : 'badge-muted' ?>"><?= $post['status'] === 'published' ? '已发布' : '草稿' ?></span></td>
           <td data-label="可见范围"><?= $post['visibility'] === 'members' ? '仅会员' : '公开' ?></td>
           <td data-label="操作" class="actions">
-            <?php if ($post['status'] === 'published' && $post['visibility'] === 'public'): ?><a class="layui-btn layui-btn-xs layui-btn-primary" href="/post/<?= \FangdaysCMS\Cms\View::e($post['slug']) ?>" target="_blank" rel="noopener">查看</a><?php endif; ?>
+            <?php if ($post['status'] === 'published' && $post['visibility'] === 'public'): ?><a class="layui-btn layui-btn-xs layui-btn-primary" href="<?= \FangdaysCMS\Cms\View::e(\FangdaysCMS\Cms\View::postLink($post)) ?>" target="_blank" rel="noopener">查看</a><?php endif; ?>
             <?php if ($can['content.manage']): ?><a class="layui-btn layui-btn-xs" href="/admin/posts/<?= (int) $post['id'] ?>/edit">修改</a><?php endif; ?>
           </td>
         </tr><?php endforeach; ?>

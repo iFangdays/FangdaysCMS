@@ -292,13 +292,15 @@ final class App
             $keyword = is_string($keyword) ? mb_substr(trim($keyword), 0, 100) : '';
             $status = $_GET['status'] ?? '';
             $status = is_string($status) && in_array($status, array('draft', 'published'), true) ? $status : '';
+            $feature = $_GET['feature'] ?? '';
+            $feature = is_string($feature) && in_array($feature, array('top', 'recommended', 'headline'), true) ? $feature : '';
             $category = $_GET['category_id'] ?? '';
             $categoryId = is_string($category) && ctype_digit($category) && (int) $category > 0 ? (int) $category : null;
-            $filters = array('q' => $keyword, 'status' => $status, 'category_id' => $categoryId ?? '');
-            $total = $repo->countPosts($status ?: null, $categoryId, true, null, $keyword ?: null);
+            $filters = array('q' => $keyword, 'status' => $status, 'category_id' => $categoryId ?? '', 'feature' => $feature);
+            $total = $repo->countPosts($status ?: null, $categoryId, true, null, $keyword ?: null, $feature ?: null);
             $totalPages = (int) ceil($total / 20);
             $page = self::boundedPage($totalPages);
-            View::render('admin/posts', $base + array('page_title' => '文章管理', 'posts' => $repo->posts($status ?: null, $categoryId, true, null, $keyword ?: null, $page), 'categories' => $repo->categories(), 'filters' => $filters, 'total' => $total, 'page' => $page, 'total_pages' => $totalPages));
+            View::render('admin/posts', $base + array('page_title' => '文章管理', 'posts' => $repo->posts($status ?: null, $categoryId, true, null, $keyword ?: null, $page, $feature ?: null), 'categories' => $repo->categories(), 'filters' => $filters, 'total' => $total, 'page' => $page, 'total_pages' => $totalPages));
             return;
         }
         if ($path === '/admin/posts/bulk' && $method === 'POST') {
@@ -516,7 +518,11 @@ final class App
                 View::render('member-required', $base + array('page_title' => '会员内容'), 403);
                 return;
             }
-            View::render('site/post', $base + array('page_title' => $post['title'], 'post' => $post, 'breadcrumb' => $post['category_id'] === null ? array() : $repo->categoryAncestors((int) $post['category_id']), 'tags' => $tags->forPost((int) $post['id']), 'extra_fields' => (new ContentModelRepository($pdo))->publicFieldsForPost((int) $post['id'], $post['category_id'] === null ? null : (int) $post['category_id'])));
+            if ($post['outlink'] !== '') {
+                header('Location: ' . $post['outlink'], true, 302);
+                exit;
+            }
+            View::render('site/post', $base + array('page_title' => $post['title'], 'seo_keywords' => $post['seo_keywords'], 'seo_description' => $post['seo_description'], 'post' => $post, 'breadcrumb' => $post['category_id'] === null ? array() : $repo->categoryAncestors((int) $post['category_id']), 'tags' => $tags->forPost((int) $post['id']), 'extra_fields' => (new ContentModelRepository($pdo))->publicFieldsForPost((int) $post['id'], $post['category_id'] === null ? null : (int) $post['category_id'])));
             return;
         }
         $this->notFound();
@@ -564,6 +570,7 @@ final class App
     private function savePost(PDO $pdo, ContentRepository $repo, ?int $id, array $base): void
     {
         $this->requireCsrf();
+        $current = $id === null ? null : $repo->post($id);
         $input = array(
             'title' => self::postString('title'),
             'slug' => self::postString('slug'),
@@ -574,6 +581,9 @@ final class App
             'cover_media_id' => self::postString('cover_media_id'),
             'extra' => $_POST['extra'] ?? array()
         );
+        foreach (array('subtitle', 'author', 'source', 'title_color', 'outlink', 'seo_keywords', 'seo_description', 'is_top', 'is_recommended', 'is_headline') as $name) {
+            $input[$name] = array_key_exists($name, $_POST) ? self::postString($name) : (string) ($current[$name] ?? (str_starts_with($name, 'is_') ? '0' : ''));
+        }
         $rawTags = $_POST['tag_ids'] ?? array();
         $selectedTags = is_array($rawTags) ? array_values(array_filter($rawTags, 'is_string')) : array();
         try {
@@ -597,6 +607,7 @@ final class App
             $pdo->beginTransaction();
             try {
                 $postId = $repo->savePost($id, $categoryId, $input['title'], $input['slug'], $input['body'], $input['status']);
+                $repo->savePostMeta($postId, $input);
                 $repo->setVisibility($postId, $input['visibility']);
                 $tags->setForPost($postId, $rawTags);
                 $media->setCover($postId, $coverId);

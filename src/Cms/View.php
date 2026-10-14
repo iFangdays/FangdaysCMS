@@ -42,6 +42,13 @@ final class View
             : '/category/' . rawurlencode((string) $category['slug']);
     }
 
+    public static function postLink(array $post): string
+    {
+        return ($post['outlink'] ?? '') !== ''
+            ? (string) $post['outlink']
+            : '/post/' . rawurlencode((string) $post['slug']);
+    }
+
     public static function pagination(int $page, int $totalPages, string $path, array $params = array()): string
     {
         if ($totalPages <= 1) {

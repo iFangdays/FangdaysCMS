@@ -13,6 +13,13 @@
       <label>栏目<select name="category_id"><option value="">未分类</option><?php foreach ($categories as $category): ?><?php if ($category['type'] !== 'list') { continue; } ?><option value="<?= (int) $category['id'] ?>" <?= (string) ($post['category_id'] ?? '') === (string) $category['id'] ? 'selected' : '' ?>><?= \FangdaysCMS\Cms\View::e(str_repeat('— ', min(12, (int) $category['depth'])) . $category['name']) ?></option><?php endforeach; ?></select><?php if (! $categories): ?><small>可先到栏目管理创建分类。</small><?php endif; ?></label>
     </div>
     <label>正文<textarea name="body" rows="20" placeholder="输入文章正文"><?= \FangdaysCMS\Cms\View::e($post['body'] ?? '') ?></textarea><small>当前正文以纯文本安全展示，换行会保留。</small></label>
+    <fieldset class="stack"><legend>文章属性与 SEO</legend>
+      <label>副标题<input name="subtitle" maxlength="255" value="<?= \FangdaysCMS\Cms\View::e($post['subtitle'] ?? '') ?>"></label>
+      <div class="field-row"><label>作者<input name="author" maxlength="100" value="<?= \FangdaysCMS\Cms\View::e($post['author'] ?? '') ?>"></label><label>来源<input name="source" maxlength="100" value="<?= \FangdaysCMS\Cms\View::e($post['source'] ?? '') ?>"></label></div>
+      <div class="field-row"><label>标题颜色<input name="title_color" maxlength="7" pattern="#[0-9a-fA-F]{6}" placeholder="#176c73" value="<?= \FangdaysCMS\Cms\View::e($post['title_color'] ?? '') ?>"><small>可选，填写六位十六进制色值。</small></label><label>跳转链接<input name="outlink" maxlength="2048" placeholder="https://example.com/ 或 /contact" value="<?= \FangdaysCMS\Cms\View::e($post['outlink'] ?? '') ?>"><small>填写后列表入口直接跳转，正文页同样跳转。</small></label></div>
+      <label>SEO 关键词<input name="seo_keywords" maxlength="255" value="<?= \FangdaysCMS\Cms\View::e($post['seo_keywords'] ?? '') ?>"></label>
+      <label>SEO 描述<textarea name="seo_description" rows="3" maxlength="500"><?= \FangdaysCMS\Cms\View::e($post['seo_description'] ?? '') ?></textarea></label>
+    </fieldset>
     <?php foreach ($model_form['fields'] as $modelId => $modelFields): ?><?php if ($modelFields): ?>
       <?php $activeModel = (int) $modelId === (int) $model_form['active_id']; ?>
       <fieldset class="admin-model-fields" data-model-id="<?= (int) $modelId ?>" <?= $activeModel ? '' : 'hidden' ?>><legend>模型扩展字段</legend><div class="stack">
@@ -34,8 +41,13 @@
     <section class="panel stack"><div><p class="eyebrow">发布设置</p><h2>状态与范围</h2></div>
       <label>状态<select name="status"><option value="draft" <?= ($post['status'] ?? 'draft') === 'draft' ? 'selected' : '' ?>>草稿</option><option value="published" <?= ($post['status'] ?? '') === 'published' ? 'selected' : '' ?>>已发布</option></select></label>
       <label>可见范围<select name="visibility"><option value="public" <?= ($post['visibility'] ?? 'public') === 'public' ? 'selected' : '' ?>>公开</option><option value="members" <?= ($post['visibility'] ?? '') === 'members' ? 'selected' : '' ?>>仅会员</option></select></label>
+      <fieldset><legend>展示属性</legend><div class="check-grid">
+        <label class="check"><input type="hidden" name="is_top" value="0"><input type="checkbox" name="is_top" value="1" <?= (int) ($post['is_top'] ?? 0) === 1 ? 'checked' : '' ?>> 置顶</label>
+        <label class="check"><input type="hidden" name="is_recommended" value="0"><input type="checkbox" name="is_recommended" value="1" <?= (int) ($post['is_recommended'] ?? 0) === 1 ? 'checked' : '' ?>> 推荐</label>
+        <label class="check"><input type="hidden" name="is_headline" value="0"><input type="checkbox" name="is_headline" value="1" <?= (int) ($post['is_headline'] ?? 0) === 1 ? 'checked' : '' ?>> 头条</label>
+      </div></fieldset>
       <button class="layui-btn" type="submit">保存文章</button>
-      <?php if ($post && ($post['status'] ?? '') === 'published' && ($post['visibility'] ?? 'public') === 'public'): ?><a href="/post/<?= \FangdaysCMS\Cms\View::e($post['slug']) ?>" target="_blank" rel="noopener">查看已发布页面 ↗</a><?php endif; ?>
+      <?php if ($post && ($post['status'] ?? '') === 'published' && ($post['visibility'] ?? 'public') === 'public'): ?><a href="<?= \FangdaysCMS\Cms\View::e(\FangdaysCMS\Cms\View::postLink($post)) ?>" target="_blank" rel="noopener">查看已发布页面 ↗</a><?php endif; ?>
     </section>
     <section class="panel stack"><div><p class="eyebrow">展示图片</p><h2>封面</h2></div>
       <label>封面图片<select name="cover_media_id"><option value="">无封面</option><?php foreach ($media as $image): ?><option value="<?= (int) $image['id'] ?>" <?= (string) ($post['cover_media_id'] ?? '') === (string) $image['id'] ? 'selected' : '' ?>><?= \FangdaysCMS\Cms\View::e($image['original_name']) ?> (#<?= (int) $image['id'] ?>)</option><?php endforeach; ?></select></label>

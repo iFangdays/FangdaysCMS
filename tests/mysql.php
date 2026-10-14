@@ -64,6 +64,10 @@ try {
     if ($repo->publishedPostBySlug('mysql-post')['id'] != $post) {
         throw new RuntimeException('MySQL published lookup failed.');
     }
+    $repo->savePostMeta($post, array('subtitle' => 'MySQL 副标题', 'author' => '编辑', 'source' => '本站', 'title_color' => '#176c73', 'outlink' => '', 'seo_keywords' => '内容', 'seo_description' => 'MySQL 摘要', 'is_top' => '1', 'is_recommended' => '0', 'is_headline' => '0'));
+    if ($repo->publishedPostBySlug('mysql-post')['subtitle'] !== 'MySQL 副标题' || $repo->countPosts('published', null, true, null, null, 'top') !== 1) {
+        throw new RuntimeException('MySQL post metadata failed.');
+    }
     $models = new ContentModelRepository($pdo);
     $model = $models->saveModel(null, '产品模型', 'product');
     $field = $models->saveField(null, $model, 'ext_color', '颜色', 'select', '红色,蓝色', true, 1);
@@ -126,16 +130,24 @@ try {
     if ($repo->publishedPostBySlug('mysql-post')['cover_path'] === null) {
         throw new RuntimeException('MySQL post cover failed.');
     }
+    $pdo->exec('DROP TABLE post_meta');
     $pdo->exec('DROP TABLE category_settings');
     $pdo->exec('ALTER TABLE categories DROP FOREIGN KEY fk_categories_parent, DROP COLUMN parent_id');
     $pdo->exec('UPDATE cms_schema SET version = 6 WHERE id = 1');
     \FangdaysCMS\Cms\Migrator::ensure($pdo);
-    if ((int) $pdo->query('SELECT version FROM cms_schema WHERE id = 1')->fetchColumn() !== 8 || (int) $pdo->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'categories' AND COLUMN_NAME = 'parent_id'")->fetchColumn() !== 1 || $repo->post($post) === null || (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'category_settings'")->fetchColumn() !== 1) {
+    if ((int) $pdo->query('SELECT version FROM cms_schema WHERE id = 1')->fetchColumn() !== 9 || (int) $pdo->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'categories' AND COLUMN_NAME = 'parent_id'")->fetchColumn() !== 1 || $repo->post($post) === null || (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'category_settings'")->fetchColumn() !== 1 || (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'post_meta'")->fetchColumn() !== 1) {
         throw new RuntimeException('MySQL upgrade from schema version 6 failed.');
+    }
+    $repo->savePostMeta($post, array('subtitle' => '升级保留', 'is_top' => '1'));
+    $pdo->exec('UPDATE cms_schema SET version = 8 WHERE id = 1');
+    \FangdaysCMS\Cms\Migrator::ensure($pdo);
+    if ($repo->post($post)['subtitle'] !== '升级保留' || (int) $pdo->query('SELECT version FROM cms_schema WHERE id = 1')->fetchColumn() !== 9) {
+        throw new RuntimeException('MySQL upgrade from schema version 8 lost post metadata.');
     }
     echo "FangdaysCMS MySQL schema, content, tags, membership, and roles passed\n";
 } finally {
     $pdo->exec('DROP TABLE IF EXISTS post_field_values');
+    $pdo->exec('DROP TABLE IF EXISTS post_meta');
     $pdo->exec('DROP TABLE IF EXISTS category_models');
     $pdo->exec('DROP TABLE IF EXISTS category_settings');
     $pdo->exec('DROP TABLE IF EXISTS model_fields');

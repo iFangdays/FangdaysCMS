@@ -8,7 +8,7 @@ use PDO;
 /** Additive schema upgrade from the original FangdaysCMS installation. */
 final class Migrator
 {
-    public const VERSION = 8;
+    public const VERSION = 9;
 
     public static function ensure(PDO $pdo): void
     {
@@ -53,8 +53,8 @@ final class Migrator
             $pdo->exec($ignore . ' INTO user_roles (user_id, role_id) SELECT id, ' . $roleIds['owner'] . ' FROM users');
             $pdo->exec($ignore . " INTO content_models (slug, name) VALUES ('article', '文章模型')");
             $pdo->exec($mysql
-                ? 'INSERT INTO cms_schema (id, version) VALUES (1, 8) ON DUPLICATE KEY UPDATE version = 8'
-                : 'INSERT INTO cms_schema (id, version) VALUES (1, 8) ON CONFLICT(id) DO UPDATE SET version = 8');
+                ? 'INSERT INTO cms_schema (id, version) VALUES (1, 9) ON DUPLICATE KEY UPDATE version = 9'
+                : 'INSERT INTO cms_schema (id, version) VALUES (1, 9) ON CONFLICT(id) DO UPDATE SET version = 9');
             if (! $mysql) {
                 $pdo->commit();
             }
@@ -98,6 +98,7 @@ final class Migrator
                 'CREATE TABLE IF NOT EXISTS model_fields (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, model_id BIGINT UNSIGNED NOT NULL, name VARCHAR(64) NOT NULL, label VARCHAR(100) NOT NULL, field_type VARCHAR(20) NOT NULL, options_json TEXT NOT NULL, is_required TINYINT NOT NULL DEFAULT 0, sort_order INT NOT NULL DEFAULT 0, UNIQUE KEY model_field_name (model_id, name), FOREIGN KEY (model_id) REFERENCES content_models(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4',
                 'CREATE TABLE IF NOT EXISTS category_models (category_id BIGINT UNSIGNED PRIMARY KEY, model_id BIGINT UNSIGNED NOT NULL, FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE, FOREIGN KEY (model_id) REFERENCES content_models(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4',
                 "CREATE TABLE IF NOT EXISTS category_settings (category_id BIGINT UNSIGNED PRIMARY KEY, type VARCHAR(16) NOT NULL DEFAULT 'list', outlink VARCHAR(2048) NOT NULL DEFAULT '', seo_title VARCHAR(255) NOT NULL DEFAULT '', seo_keywords VARCHAR(255) NOT NULL DEFAULT '', seo_description TEXT NOT NULL, single_title VARCHAR(191) NOT NULL DEFAULT '', single_body LONGTEXT NOT NULL, single_status VARCHAR(16) NOT NULL DEFAULT 'draft', FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+                "CREATE TABLE IF NOT EXISTS post_meta (post_id BIGINT UNSIGNED PRIMARY KEY, subtitle VARCHAR(255) NOT NULL DEFAULT '', author VARCHAR(100) NOT NULL DEFAULT '', source VARCHAR(100) NOT NULL DEFAULT '', title_color VARCHAR(7) NOT NULL DEFAULT '', outlink VARCHAR(2048) NOT NULL DEFAULT '', seo_keywords VARCHAR(255) NOT NULL DEFAULT '', seo_description TEXT NOT NULL, is_top TINYINT NOT NULL DEFAULT 0, is_recommended TINYINT NOT NULL DEFAULT 0, is_headline TINYINT NOT NULL DEFAULT 0, FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
                 'CREATE TABLE IF NOT EXISTS post_field_values (post_id BIGINT UNSIGNED NOT NULL, field_id BIGINT UNSIGNED NOT NULL, value TEXT NOT NULL, PRIMARY KEY (post_id, field_id), FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE, FOREIGN KEY (field_id) REFERENCES model_fields(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
             );
         }
@@ -117,6 +118,7 @@ final class Migrator
             'CREATE TABLE IF NOT EXISTS model_fields (id INTEGER PRIMARY KEY AUTOINCREMENT, model_id INTEGER NOT NULL REFERENCES content_models(id) ON DELETE CASCADE, name TEXT NOT NULL, label TEXT NOT NULL, field_type TEXT NOT NULL, options_json TEXT NOT NULL, is_required INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0, UNIQUE (model_id, name))',
             'CREATE TABLE IF NOT EXISTS category_models (category_id INTEGER PRIMARY KEY REFERENCES categories(id) ON DELETE CASCADE, model_id INTEGER NOT NULL REFERENCES content_models(id))',
             "CREATE TABLE IF NOT EXISTS category_settings (category_id INTEGER PRIMARY KEY REFERENCES categories(id) ON DELETE CASCADE, type TEXT NOT NULL DEFAULT 'list', outlink TEXT NOT NULL DEFAULT '', seo_title TEXT NOT NULL DEFAULT '', seo_keywords TEXT NOT NULL DEFAULT '', seo_description TEXT NOT NULL DEFAULT '', single_title TEXT NOT NULL DEFAULT '', single_body TEXT NOT NULL DEFAULT '', single_status TEXT NOT NULL DEFAULT 'draft')",
+            "CREATE TABLE IF NOT EXISTS post_meta (post_id INTEGER PRIMARY KEY REFERENCES posts(id) ON DELETE CASCADE, subtitle TEXT NOT NULL DEFAULT '', author TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '', title_color TEXT NOT NULL DEFAULT '', outlink TEXT NOT NULL DEFAULT '', seo_keywords TEXT NOT NULL DEFAULT '', seo_description TEXT NOT NULL DEFAULT '', is_top INTEGER NOT NULL DEFAULT 0, is_recommended INTEGER NOT NULL DEFAULT 0, is_headline INTEGER NOT NULL DEFAULT 0)",
             'CREATE TABLE IF NOT EXISTS post_field_values (post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE, field_id INTEGER NOT NULL REFERENCES model_fields(id) ON DELETE CASCADE, value TEXT NOT NULL, PRIMARY KEY (post_id, field_id))'
         );
     }
