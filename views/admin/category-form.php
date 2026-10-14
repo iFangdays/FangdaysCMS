@@ -1,3 +1,4 @@
+<header class="admin-page-heading"><div><p class="eyebrow">内容管理 / 栏目</p><h1><?= \FangdaysCMS\Cms\View::e($pageTitle) ?></h1><p class="muted">设置栏目名称、访问地址与展示顺序。</p></div><a class="admin-back-link" href="/admin/categories"><i class="fa fa-angle-left" aria-hidden="true"></i> 返回列表</a></header>
 <div class="layui-tab layui-tab-brief">
   <ul class="layui-tab-title"><li><a href="/admin/categories">栏目列表</a></li><li class="layui-this"><a href="<?= $category && $category['id'] ? '/admin/categories/' . (int) $category['id'] . '/edit' : '/admin/categories/new' ?>"><?= $category && $category['id'] ? '栏目修改' : '栏目新增' ?></a></li></ul>
   <div class="layui-tab-content">

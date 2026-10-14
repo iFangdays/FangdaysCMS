@@ -1,3 +1,4 @@
+<header class="admin-page-heading"><div><p class="eyebrow">内容管理 / 文章</p><h1><?= \FangdaysCMS\Cms\View::e($pageTitle) ?></h1><p class="muted">填写正文、设置栏目与可见范围，然后保存。</p></div><a class="admin-back-link" href="/admin/posts"><i class="fa fa-angle-left" aria-hidden="true"></i> 返回列表</a></header>
 <div class="layui-tab layui-tab-brief">
   <ul class="layui-tab-title"><li><a href="/admin/posts">文章列表</a></li><li class="layui-this"><a href="<?= $post && $post['id'] ? '/admin/posts/' . (int) $post['id'] . '/edit' : '/admin/posts/new' ?>"><?= $post && $post['id'] ? '文章修改' : '文章新增' ?></a></li></ul>
   <div class="layui-tab-content">

@@ -265,7 +265,7 @@ final class App
             $total = $repo->countPosts($status ?: null, $categoryId, true, null, $keyword ?: null);
             $totalPages = (int) ceil($total / 20);
             $page = self::boundedPage($totalPages);
-            View::render('admin/posts', $base + array('page_title' => '内容管理', 'posts' => $repo->posts($status ?: null, $categoryId, true, null, $keyword ?: null, $page), 'categories' => $repo->categories(), 'filters' => $filters, 'total' => $total, 'page' => $page, 'total_pages' => $totalPages));
+            View::render('admin/posts', $base + array('page_title' => '文章管理', 'posts' => $repo->posts($status ?: null, $categoryId, true, null, $keyword ?: null, $page), 'categories' => $repo->categories(), 'filters' => $filters, 'total' => $total, 'page' => $page, 'total_pages' => $totalPages));
             return;
         }
         if ($path === '/admin/posts/bulk' && $method === 'POST') {
