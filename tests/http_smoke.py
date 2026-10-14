@@ -99,7 +99,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         status, dashboard = request(
             "/login", {"_csrf": csrf(login), "username": "owner", "password": "strong-test-password-123"}
         )
-        assert status == 200 and "管理后台" in dashboard
+        assert status == 200 and "管理后台" in dashboard and 'id="admin-navigation"' in dashboard
 
         status, categories = request("/admin/categories/new")
         assert status == 200
@@ -175,6 +175,34 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             },
         )
         assert status == 200 and "会员专享" in member_post_list
+        status, filtered = request("/admin/posts?q=%E7%AC%AC%E4%B8%80%E7%AF%87&status=published&category_id=1")
+        assert status == 200 and "第一篇文章" in filtered and "会员专享" not in filtered
+        assert 'name="q"' in filtered and 'name="category_id"' in filtered
+        status, category_admin = request("/admin/categories")
+        assert status == 200 and "2 篇" in category_admin and "/admin/posts?category_id=1" in category_admin
+
+        status, batch_form = request("/admin/posts/new")
+        status, batch_list = request("/admin/posts", {
+            "_csrf": csrf(batch_form), "title": "待批量操作", "slug": "bulk-smoke",
+            "category_id": "1", "body": "批量测试", "status": "draft", "visibility": "public"
+        })
+        assert status == 200 and "待批量操作" in batch_list
+        batch_id = re.search(r'待批量操作.*?/admin/posts/(\d+)/edit', batch_list, re.S).group(1)
+        status, drafts = request("/admin/posts?status=draft&q=%E5%BE%85%E6%89%B9%E9%87%8F")
+        assert status == 200 and "待批量操作" in drafts and "第一篇文章" not in drafts
+        status, no_selection = request("/admin/posts/bulk", {"_csrf": csrf(drafts), "action": "delete"})
+        assert status == 200 and "操作失败：请选择本页文章" in no_selection
+        status, published = request("/admin/posts/bulk", {
+            "_csrf": csrf(drafts), "post_ids[]": batch_id, "action": "publish"
+        })
+        assert status == 200 and "已处理 1 篇文章" in published
+        status, published_filter = request("/admin/posts?status=published&q=%E5%BE%85%E6%89%B9%E9%87%8F")
+        assert status == 200 and "待批量操作" in published_filter
+        status, deleted = request("/admin/posts/bulk", {
+            "_csrf": csrf(published_filter), "post_ids[]": batch_id, "action": "delete"
+        })
+        assert status == 200 and "已处理 1 篇文章" in deleted
+        assert "待批量操作" not in request("/admin/posts?q=%E5%BE%85%E6%89%B9%E9%87%8F")[1]
         status, still_unlicensed = request("/post/first-post")
         assert status == 503
 
@@ -258,6 +286,9 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         }, client=reviewer)
         assert status == 200 and "审阅员" in reviewer_dashboard
         assert request("/admin/posts", client=reviewer)[0] == 200
+        assert request("/admin/posts/bulk", {
+            "_csrf": csrf(reviewer_dashboard), "post_ids[]": "1", "action": "delete"
+        }, client=reviewer)[0] == 403
         assert request("/admin/tags", client=reviewer)[0] == 403
         assert request("/admin/members", client=reviewer)[0] == 403
         assert request("/admin/posts", {"_csrf": csrf(reviewer_dashboard), "title": "非法"}, client=reviewer)[0] == 403

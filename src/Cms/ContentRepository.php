@@ -17,6 +17,11 @@ final class ContentRepository
         return $this->pdo->query('SELECT id, name, slug, sort_order FROM categories ORDER BY sort_order ASC, id ASC')->fetchAll();
     }
 
+    public function categoriesWithPostCounts(): array
+    {
+        return $this->pdo->query('SELECT c.id, c.name, c.slug, c.sort_order, COUNT(p.id) AS post_count FROM categories c LEFT JOIN posts p ON p.category_id = c.id GROUP BY c.id, c.name, c.slug, c.sort_order ORDER BY c.sort_order ASC, c.id ASC')->fetchAll();
+    }
+
     public function category(int $id): ?array
     {
         $stmt = $this->pdo->prepare('SELECT id, name, slug, sort_order FROM categories WHERE id = ?');
@@ -123,6 +128,31 @@ final class ContentRepository
     {
         $stmt = $this->pdo->prepare('DELETE FROM posts WHERE id = ?');
         $stmt->execute(array($id));
+    }
+
+    public function bulkPosts(array $ids, string $action): int
+    {
+        if (! in_array($action, array('publish', 'draft', 'delete'), true) || count($ids) < 1 || count($ids) > 20) {
+            throw new InvalidArgumentException('请选择本页文章，并指定有效操作。');
+        }
+        $validated = array();
+        foreach ($ids as $id) {
+            if (! is_string($id) || ! ctype_digit($id) || (int) $id < 1) {
+                throw new InvalidArgumentException('所选文章无效。');
+            }
+            $validated[] = (int) $id;
+        }
+        $validated = array_values(array_unique($validated));
+        $placeholders = implode(', ', array_fill(0, count($validated), '?'));
+        if ($action === 'delete') {
+            $stmt = $this->pdo->prepare('DELETE FROM posts WHERE id IN (' . $placeholders . ')');
+            $stmt->execute($validated);
+            return $stmt->rowCount();
+        }
+        $status = $action === 'publish' ? 'published' : 'draft';
+        $stmt = $this->pdo->prepare('UPDATE posts SET status = ?, updated_at = ? WHERE id IN (' . $placeholders . ')');
+        $stmt->execute(array_merge(array($status, time()), $validated));
+        return $stmt->rowCount();
     }
 
     public function setVisibility(int $postId, string $visibility): void

@@ -75,6 +75,7 @@ try {
     $repo->savePost($postId, $categoryId, '第一篇文章', 'first-post', '正文', 'published');
     check($repo->publishedPostBySlug('first-post')['title'] === '第一篇文章', 'Published post lookup failed.');
     check(count($repo->posts('published', $categoryId)) === 1, 'Category listing failed.');
+    check((int) $repo->categoriesWithPostCounts()[0]['post_count'] === 1, 'Category post count failed.');
     $repo->deleteCategory($categoryId);
     check($repo->post($postId)['category_id'] === null, 'Deleting category should keep its articles.');
     $tags = new TagRepository($pdo);
@@ -87,6 +88,19 @@ try {
         $repo->savePost(null, null, '分页文章 ' . $i, 'page-' . $i, '正文', 'published');
     }
     check($repo->countPosts('published') === 21 && count($repo->posts('published')) === 20 && count($repo->posts('published', page: 2)) === 1, 'Pagination or count failed.');
+    $batchA = $repo->savePost(null, null, '批量文章甲', 'batch-a', '正文', 'draft');
+    $batchB = $repo->savePost(null, null, '批量文章乙', 'batch-b', '正文', 'draft');
+    check($repo->countPosts('draft', null, true, null, '批量文章') === 2, 'Filtered draft count failed.');
+    check($repo->bulkPosts(array((string) $batchA, (string) $batchB), 'publish') === 2, 'Bulk publish failed.');
+    check(count($repo->posts('published', null, true, null, '批量文章')) === 2, 'Filtered published listing failed.');
+    check($repo->bulkPosts(array((string) $batchA, (string) $batchB), 'draft') === 2, 'Bulk draft failed.');
+    check($repo->bulkPosts(array((string) $batchA, (string) $batchB), 'delete') === 2 && $repo->post($batchA) === null, 'Bulk delete failed.');
+    try {
+        $repo->bulkPosts(array('not-an-id'), 'delete');
+        throw new RuntimeException('Invalid bulk ID was accepted.');
+    } catch (InvalidArgumentException $error) {
+        check(str_contains($error->getMessage(), '无效'), 'Invalid bulk ID failed for the wrong reason.');
+    }
     $members = new MemberRepository($pdo);
     $memberId = $members->register('Reader@Example.com', '读者', 'member-test-password-123');
     check($members->authenticate('reader@example.com', 'member-test-password-123')['id'] == $memberId, 'Member authentication failed.');
@@ -98,6 +112,9 @@ try {
     $adminId = $access->createAdmin('reviewer', 'reviewer-password-123', $roleId, true);
     check(Permissions::can($pdo, array('role_id' => $roleId, 'role_slug' => 'reviewer'), 'content.view'), 'Granted permission failed.');
     check(! Permissions::can($pdo, array('role_id' => $roleId, 'role_slug' => 'reviewer'), 'taxonomy.manage'), 'Unexpected permission granted.');
+    $editorRoleId = $access->saveRole(null, '内容专员', 'content-only-editor', array('content.manage'));
+    check(Permissions::can($pdo, array('role_id' => $editorRoleId, 'role_slug' => 'content-only-editor'), 'content.view'), 'Content management did not include listing access.');
+    $access->deleteRole($editorRoleId);
     $access->deleteAdmin($adminId, 1);
     $access->deleteRole($roleId);
     Migrator::ensure($pdo);

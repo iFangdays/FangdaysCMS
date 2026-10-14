@@ -27,8 +27,10 @@ final class Permissions
         if (($user['role_slug'] ?? null) === 'owner') {
             return true;
         }
-        $stmt = $pdo->prepare('SELECT 1 FROM role_permissions WHERE role_id = ? AND permission = ?');
-        $stmt->execute(array((int) ($user['role_id'] ?? 0), $permission));
+        $grants = $permission === 'content.view' ? array('content.view', 'content.manage') : array($permission);
+        $placeholders = implode(', ', array_fill(0, count($grants), '?'));
+        $stmt = $pdo->prepare('SELECT 1 FROM role_permissions WHERE role_id = ? AND permission IN (' . $placeholders . ')');
+        $stmt->execute(array_merge(array((int) ($user['role_id'] ?? 0)), $grants));
         return (bool) $stmt->fetchColumn();
     }
 }

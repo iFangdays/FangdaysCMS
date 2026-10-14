@@ -57,6 +57,12 @@ final class App
             foreach (Permissions::CATALOG as $permission => $label) {
                 $can[$permission] = Permissions::can($pdo, $user, $permission);
             }
+            if ($path === '/admin' && ! $can['dashboard.view']) {
+                $landing = self::firstAdminPath($can);
+                if ($landing !== '/admin') {
+                    $this->redirect($landing);
+                }
+            }
             $this->adminRoute($path, $method, $pdo, $repo, $store, $site + array('admin' => true, 'user' => $user, 'can' => $can));
             return;
         }
@@ -112,7 +118,15 @@ final class App
         if ($method === 'POST') {
             $this->requireCsrf();
             if (Auth::login($pdo, self::postString('username'), self::postString('password'))) {
-                $this->redirect('/admin');
+                $user = Auth::user($pdo);
+                if ($user === null) {
+                    $this->redirect('/login');
+                }
+                $can = array();
+                foreach (Permissions::CATALOG as $permission => $label) {
+                    $can[$permission] = Permissions::can($pdo, $user, $permission);
+                }
+                $this->redirect(self::firstAdminPath($can));
             }
             $error = '用户名或密码错误，或尝试次数过多。';
         } elseif ($method !== 'GET') {
@@ -188,6 +202,9 @@ final class App
                 'page_title' => '管理概览',
                 'category_count' => count($repo->categories()),
                 'post_count' => $repo->countPosts(),
+                'published_count' => $repo->countPosts('published', null, true),
+                'draft_count' => $repo->countPosts('draft'),
+                'recent_posts' => $base['can']['content.view'] ? $repo->posts() : array(),
                 'license' => $store->status()
             ));
             return;
@@ -205,7 +222,7 @@ final class App
             }
         }
         if ($path === '/admin/categories' && $method === 'GET') {
-            View::render('admin/categories', $base + array('page_title' => '栏目管理', 'categories' => $repo->categories()));
+            View::render('admin/categories', $base + array('page_title' => '栏目管理', 'categories' => $repo->categoriesWithPostCounts()));
             return;
         }
         if ($path === '/admin/categories/new' && $method === 'GET') {
@@ -238,9 +255,32 @@ final class App
             $this->redirect('/admin/categories');
         }
         if ($path === '/admin/posts' && $method === 'GET') {
-            $totalPages = (int) ceil($repo->countPosts() / 20);
+            $keyword = $_GET['q'] ?? '';
+            $keyword = is_string($keyword) ? mb_substr(trim($keyword), 0, 100) : '';
+            $status = $_GET['status'] ?? '';
+            $status = is_string($status) && in_array($status, array('draft', 'published'), true) ? $status : '';
+            $category = $_GET['category_id'] ?? '';
+            $categoryId = is_string($category) && ctype_digit($category) && (int) $category > 0 ? (int) $category : null;
+            $filters = array('q' => $keyword, 'status' => $status, 'category_id' => $categoryId ?? '');
+            $total = $repo->countPosts($status ?: null, $categoryId, true, null, $keyword ?: null);
+            $totalPages = (int) ceil($total / 20);
             $page = self::boundedPage($totalPages);
-            View::render('admin/posts', $base + array('page_title' => '内容管理', 'posts' => $repo->posts(page: $page), 'page' => $page, 'total_pages' => $totalPages));
+            View::render('admin/posts', $base + array('page_title' => '内容管理', 'posts' => $repo->posts($status ?: null, $categoryId, true, null, $keyword ?: null, $page), 'categories' => $repo->categories(), 'filters' => $filters, 'total' => $total, 'page' => $page, 'total_pages' => $totalPages));
+            return;
+        }
+        if ($path === '/admin/posts/bulk' && $method === 'POST') {
+            $this->requireCsrf();
+            try {
+                $rawIds = $_POST['post_ids'] ?? array();
+                if (! is_array($rawIds)) {
+                    throw new InvalidArgumentException('所选文章无效。');
+                }
+                $affected = $repo->bulkPosts($rawIds, self::postString('action'));
+                $_SESSION['flash'] = '已处理 ' . $affected . ' 篇文章。';
+            } catch (InvalidArgumentException $error) {
+                $_SESSION['flash'] = '操作失败：' . $error->getMessage();
+            }
+            $this->redirect('/admin/posts');
             return;
         }
         if ($path === '/admin/posts/new' && $method === 'GET') {
@@ -809,6 +849,26 @@ final class App
     private static function boundedPage(int $totalPages): int
     {
         return min(self::pageNumber(), max(1, $totalPages));
+    }
+
+    private static function firstAdminPath(array $can): string
+    {
+        foreach (array(
+            'dashboard.view' => '/admin',
+            'content.view' => '/admin/posts',
+            'taxonomy.manage' => '/admin/categories',
+            'content.manage' => '/admin/posts/new',
+            'media.manage' => '/admin/media',
+            'members.manage' => '/admin/members',
+            'access.manage' => '/admin/roles',
+            'settings.manage' => '/admin/settings',
+            'license.manage' => '/admin/license'
+        ) as $permission => $path) {
+            if ($can[$permission] ?? false) {
+                return $path;
+            }
+        }
+        return '/admin';
     }
 
     private function redirect(string $path): never
