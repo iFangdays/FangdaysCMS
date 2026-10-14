@@ -35,6 +35,13 @@ final class View
         return '<input type="hidden" name="_csrf" value="' . self::e(Auth::csrfToken()) . '">';
     }
 
+    public static function categoryLink(array $category): string
+    {
+        return ($category['type'] ?? 'list') === 'link' && ($category['outlink'] ?? '') !== ''
+            ? (string) $category['outlink']
+            : '/category/' . rawurlencode((string) $category['slug']);
+    }
+
     public static function pagination(int $page, int $totalPages, string $path, array $params = array()): string
     {
         if ($totalPages <= 1) {

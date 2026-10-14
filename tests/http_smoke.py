@@ -92,7 +92,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             },
         )
         assert status == 200 and "后台登录" in login, login[:400]
-        assert "schema version 7 is ready" in command(site / "bin/migrate.php")
+        assert "schema version 8 is ready" in command(site / "bin/migrate.php")
         status, unlicensed = request("/")
         assert status == 503 and "尚未获得有效授权" in unlicensed
 
@@ -412,7 +412,72 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         status, blocked_delete = request("/admin/categories/1/delete", {"_csrf": csrf(parent_edit)})
         assert status == 200 and "还有子栏目" in blocked_delete
 
-        print("FangdaysCMS HTTP install, admin, category hierarchy, license, and public-site smoke test passed")
+        status, blocked_type = request("/admin/categories/1/edit", {
+            "_csrf": csrf(parent_edit), "name": "新闻", "slug": "news", "sort_order": "1",
+            "model_id": "1", "type": "single",
+        })
+        assert status == 422 and "直属文章" in blocked_type
+        assert "第一篇文章" in request("/category/news")[1]
+
+        status, single_form = request("/admin/categories/new")
+        status, single_list = request("/admin/categories", {
+            "_csrf": csrf(single_form), "name": "公司介绍", "slug": "company-intro",
+            "sort_order": "5", "model_id": "1", "type": "single",
+            "seo_title": "公司介绍专属标题", "seo_keywords": "公司,介绍",
+            "seo_description": "这里是栏目 SEO 描述",
+        })
+        assert status == 200 and "公司介绍" in single_list
+        single_id = re.search(r'公司介绍.*?/admin/categories/(\d+)/edit', single_list, re.S).group(1)
+        assert request("/category/company-intro")[0] == 404
+        assert "company-intro" not in request("/")[1]
+        status, single_edit = request(f"/admin/categories/{single_id}/single")
+        assert status == 200 and "编辑此栏目的单页正文" in single_edit
+        assert request(f"/admin/categories/{single_id}/single", client=reviewer)[0] == 403
+        status, saved_single = request(f"/admin/categories/{single_id}/single", {
+            "_csrf": csrf(single_edit), "title": "我们的公司",
+            "body": "单页内容 <script>alert(1)</script>", "status": "published",
+        })
+        assert status == 200 and "单页栏目内容已保存" in saved_single
+        status, public_single = request("/category/company-intro")
+        assert status == 200 and "我们的公司" in public_single
+        assert "&lt;script&gt;" in public_single and "<script>alert(1)</script>" not in public_single
+        assert '<title>公司介绍专属标题</title>' in public_single
+        assert 'name="keywords" content="公司,介绍"' in public_single
+        assert 'name="description" content="这里是栏目 SEO 描述"' in public_single
+        assert 'href="/category/company-intro"' in request("/")[1]
+        status, draft_single = request(f"/admin/categories/{single_id}/single", {
+            "_csrf": csrf(saved_single), "title": "我们的公司", "body": "暂存内容", "status": "draft",
+        })
+        assert status == 200 and request("/category/company-intro")[0] == 404
+        assert "company-intro" not in request("/")[1]
+        status, republished_single = request(f"/admin/categories/{single_id}/single", {
+            "_csrf": csrf(draft_single), "title": "我们的公司", "body": "重新发布", "status": "published",
+        })
+        assert status == 200 and "重新发布" in request("/category/company-intro")[1]
+
+        status, link_form = request("/admin/categories/new")
+        status, invalid_link = request("/admin/categories", {
+            "_csrf": csrf(link_form), "name": "坏链接", "slug": "bad-link", "sort_order": "6",
+            "model_id": "1", "type": "link", "outlink": "javascript:alert(1)",
+        })
+        assert status == 422 and "跳转链接须为" in invalid_link
+        assert "bad-link" not in request("/")[1]
+        status, link_list = request("/admin/categories", {
+            "_csrf": csrf(link_form), "name": "资源入口", "slug": "resources", "sort_order": "6",
+            "model_id": "1", "type": "link", "outlink": "/search",
+        })
+        assert status == 200 and "资源入口" in link_list
+        assert 'href="/search">资源入口</a>' in request("/")[1]
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+        try:
+            urllib.request.build_opener(NoRedirect()).open(base + "/category/resources", timeout=5)
+            raise AssertionError("Link category did not redirect")
+        except urllib.error.HTTPError as error:
+            assert error.code == 302 and error.headers["Location"] == "/search"
+
+        print("FangdaysCMS HTTP install, admin, category types and SEO, license, and public-site smoke test passed")
         if os.environ.get("FANGDAYS_PREVIEW") == "1":
             print(f"Preview running at {base}", flush=True)
             input("Press Enter to stop preview: ")

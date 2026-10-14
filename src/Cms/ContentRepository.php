@@ -14,13 +14,13 @@ final class ContentRepository
 
     public function categories(): array
     {
-        $rows = $this->pdo->query('SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id ORDER BY c.sort_order ASC, c.id ASC')->fetchAll();
+        $rows = $this->pdo->query("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, COALESCE(s.type, 'list') AS type, COALESCE(s.outlink, '') AS outlink, COALESCE(s.single_status, 'draft') AS single_status FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id ORDER BY c.sort_order ASC, c.id ASC")->fetchAll();
         return self::treeRows($rows);
     }
 
     public function categoriesWithPostCounts(): array
     {
-        $rows = $this->pdo->query('SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, m.name AS model_name, COUNT(p.id) AS post_count FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN content_models m ON m.id = cm.model_id LEFT JOIN posts p ON p.category_id = c.id GROUP BY c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, m.name ORDER BY c.sort_order ASC, c.id ASC')->fetchAll();
+        $rows = $this->pdo->query("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, m.name AS model_name, COALESCE(s.type, 'list') AS type, COALESCE(s.outlink, '') AS outlink, COALESCE(s.single_status, 'draft') AS single_status, COUNT(p.id) AS post_count FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id LEFT JOIN content_models m ON m.id = cm.model_id LEFT JOIN posts p ON p.category_id = c.id GROUP BY c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, m.name, s.type, s.outlink, s.single_status ORDER BY c.sort_order ASC, c.id ASC")->fetchAll();
         $rows = self::treeRows($rows);
         $counts = array();
         foreach ($rows as $row) {
@@ -39,12 +39,12 @@ final class ContentRepository
 
     public function rootCategories(): array
     {
-        return array_values(array_filter($this->categories(), static fn (array $category): bool => $category['parent_id'] === null));
+        return array_values(array_filter($this->categories(), static fn (array $category): bool => $category['parent_id'] === null && self::isPublicCategory($category)));
     }
 
     public function childCategories(int $parentId): array
     {
-        return array_values(array_filter($this->categories(), static fn (array $category): bool => (int) $category['parent_id'] === $parentId));
+        return array_values(array_filter($this->categories(), static fn (array $category): bool => (int) $category['parent_id'] === $parentId && self::isPublicCategory($category)));
     }
 
     public function parentChoices(?int $categoryId): array
@@ -90,16 +90,79 @@ final class ContentRepository
 
     public function category(int $id): ?array
     {
-        $stmt = $this->pdo->prepare('SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id WHERE c.id = ?');
+        $stmt = $this->pdo->prepare("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, COALESCE(s.type, 'list') AS type, COALESCE(s.outlink, '') AS outlink, COALESCE(s.seo_title, '') AS seo_title, COALESCE(s.seo_keywords, '') AS seo_keywords, COALESCE(s.seo_description, '') AS seo_description, COALESCE(s.single_title, '') AS single_title, COALESCE(s.single_body, '') AS single_body, COALESCE(s.single_status, 'draft') AS single_status FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id WHERE c.id = ?");
         $stmt->execute(array($id));
         return $stmt->fetch() ?: null;
     }
 
     public function categoryBySlug(string $slug): ?array
     {
-        $stmt = $this->pdo->prepare('SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id WHERE c.slug = ?');
+        $stmt = $this->pdo->prepare("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, COALESCE(s.type, 'list') AS type, COALESCE(s.outlink, '') AS outlink, COALESCE(s.seo_title, '') AS seo_title, COALESCE(s.seo_keywords, '') AS seo_keywords, COALESCE(s.seo_description, '') AS seo_description, COALESCE(s.single_title, '') AS single_title, COALESCE(s.single_body, '') AS single_body, COALESCE(s.single_status, 'draft') AS single_status FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id WHERE c.slug = ?");
         $stmt->execute(array($slug));
         return $stmt->fetch() ?: null;
+    }
+
+    public function saveCategorySettings(int $categoryId, string $type, string $outlink, string $seoTitle, string $seoKeywords, string $seoDescription): void
+    {
+        $outlink = trim($outlink);
+        $seoTitle = trim($seoTitle);
+        $seoKeywords = trim($seoKeywords);
+        $seoDescription = trim($seoDescription);
+        if (! in_array($type, array('list', 'single', 'link'), true)
+            || mb_strlen($seoTitle) > 255 || mb_strlen($seoKeywords) > 255 || mb_strlen($seoDescription) > 500) {
+            throw new InvalidArgumentException('栏目类型或 SEO 信息无效。');
+        }
+        if ($type !== 'list') {
+            $count = $this->pdo->prepare('SELECT COUNT(*) FROM posts WHERE category_id = ?');
+            $count->execute(array($categoryId));
+            if ((int) $count->fetchColumn() > 0) {
+                throw new InvalidArgumentException('该栏目下已有文章，请先将直属文章移到列表栏目。');
+            }
+        }
+        if ($type === 'link') {
+            $parts = parse_url($outlink);
+            $absolute = $parts !== false && in_array(strtolower($parts['scheme'] ?? ''), array('http', 'https'), true)
+                && ! empty($parts['host']) && ! isset($parts['user']) && ! isset($parts['pass'])
+                && filter_var($outlink, FILTER_VALIDATE_URL) !== false;
+            $relative = (bool) preg_match('~^/(?!/)[^\x00-\x20\x7f\\\\]*$~D', $outlink);
+            if (strlen($outlink) > 2048 || (! $absolute && ! $relative)) {
+                throw new InvalidArgumentException('跳转链接须为 http(s) 地址或站内绝对路径。');
+            }
+            $category = $this->category($categoryId);
+            if ($category !== null && $outlink === '/category/' . $category['slug']) {
+                throw new InvalidArgumentException('跳转链接不能指向栏目自身。');
+            }
+        } else {
+            $outlink = '';
+        }
+        $exists = $this->pdo->prepare('SELECT category_id FROM category_settings WHERE category_id = ?');
+        $exists->execute(array($categoryId));
+        if ($exists->fetchColumn() === false) {
+            $stmt = $this->pdo->prepare('INSERT INTO category_settings (category_id, type, outlink, seo_title, seo_keywords, seo_description, single_title, single_body, single_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+            $stmt->execute(array($categoryId, $type, $outlink, $seoTitle, $seoKeywords, $seoDescription, '', '', 'draft'));
+        } else {
+            $stmt = $this->pdo->prepare('UPDATE category_settings SET type = ?, outlink = ?, seo_title = ?, seo_keywords = ?, seo_description = ? WHERE category_id = ?');
+            $stmt->execute(array($type, $outlink, $seoTitle, $seoKeywords, $seoDescription, $categoryId));
+        }
+    }
+
+    public function saveSingle(int $categoryId, string $title, string $body, string $status): void
+    {
+        $category = $this->category($categoryId);
+        if ($category === null || $category['type'] !== 'single') {
+            throw new InvalidArgumentException('请选择单页类型栏目。');
+        }
+        $title = trim($title);
+        if ($title === '' || mb_strlen($title) > 100 || strlen($body) > 2000000 || ! in_array($status, array('draft', 'published'), true)) {
+            throw new InvalidArgumentException('单页标题、正文或状态无效。');
+        }
+        $stmt = $this->pdo->prepare('UPDATE category_settings SET single_title = ?, single_body = ?, single_status = ? WHERE category_id = ?');
+        $stmt->execute(array($title, $body, $status, $categoryId));
+    }
+
+    private static function isPublicCategory(array $category): bool
+    {
+        return $category['type'] !== 'single' || $category['single_status'] === 'published';
     }
 
     public function saveCategory(?int $id, string $name, string $slug, int $sortOrder, ?int $parentId = null): int
@@ -214,8 +277,11 @@ final class ContentRepository
         if ($title === '' || strlen($title) > 300 || strlen($body) > 2000000 || ! in_array($status, array('draft', 'published'), true)) {
             throw new InvalidArgumentException('Post title, body, or status is invalid.');
         }
-        if ($categoryId !== null && $this->category($categoryId) === null) {
-            throw new InvalidArgumentException('Category does not exist.');
+        if ($categoryId !== null) {
+            $category = $this->category($categoryId);
+            if ($category === null || $category['type'] !== 'list') {
+                throw new InvalidArgumentException('请选择列表类型栏目。');
+            }
         }
         $now = time();
         if ($id === null) {

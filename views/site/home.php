@@ -7,7 +7,7 @@
 <div class="container py-5">
   <div class="text-center mb-4"><p class="site-kicker text-success mb-1">EXPLORE</p><h2>内容分类</h2></div>
   <div class="row">
-    <?php foreach ($categories as $category): ?><div class="col-md-4 mb-3"><a class="site-category d-block h-100 p-4" href="/category/<?= \FangdaysCMS\Cms\View::e($category['slug']) ?>"><span class="text-muted small">栏目</span><h3 class="h5 mt-2 mb-0"><?= \FangdaysCMS\Cms\View::e($category['name']) ?> →</h3></a></div><?php endforeach; ?>
+    <?php foreach ($categories as $category): ?><div class="col-md-4 mb-3"><a class="site-category d-block h-100 p-4" href="<?= \FangdaysCMS\Cms\View::e(\FangdaysCMS\Cms\View::categoryLink($category)) ?>"><span class="text-muted small">栏目</span><h3 class="h5 mt-2 mb-0"><?= \FangdaysCMS\Cms\View::e($category['name']) ?> →</h3></a></div><?php endforeach; ?>
     <?php if (! $categories): ?><div class="col-12 text-center text-muted">栏目正在准备中。</div><?php endif; ?>
   </div>
 </div>

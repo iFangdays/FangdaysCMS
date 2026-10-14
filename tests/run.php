@@ -21,6 +21,7 @@ use FangdaysCMS\Cms\Quickstart;
 use FangdaysCMS\Cms\PageRepository;
 use FangdaysCMS\Cms\SettingsRepository;
 use FangdaysCMS\Cms\MediaRepository;
+use FangdaysCMS\Cms\View;
 use FangdaysCMS\Licensing\LicenseCode;
 use FangdaysCMS\Licensing\LicenseStore;
 
@@ -102,6 +103,39 @@ try {
     $repo->deleteCategory($childCategory);
     $repo->deleteCategory($categoryId);
     check($repo->post($postId)['category_id'] === null, 'Deleting category should keep its articles.');
+    $singleCategory = $repo->saveCategory(null, '关于公司', 'company', 1);
+    $repo->saveCategorySettings($singleCategory, 'single', '', '公司介绍 SEO', '企业,简介', '企业介绍');
+    check($repo->category($singleCategory)['seo_title'] === '公司介绍 SEO', 'Category SEO settings were not saved.');
+    check(count($repo->rootCategories()) === 0, 'Draft single category appeared in navigation.');
+    $repo->saveSingle($singleCategory, '公司介绍', '<script>bad()</script>', 'published');
+    check($repo->categoryBySlug('company')['single_body'] === '<script>bad()</script>' && count($repo->rootCategories()) === 1, 'Published single category failed.');
+    check(View::categoryLink($repo->category($singleCategory)) === '/category/company', 'Single category link failed.');
+    try {
+        $repo->savePost(null, $singleCategory, '错误文章', 'invalid-single-post', '正文', 'published');
+        throw new RuntimeException('Post was assigned to single category.');
+    } catch (InvalidArgumentException $error) {
+        check(str_contains($error->getMessage(), '列表类型'), 'Single category post rejection failed for the wrong reason.');
+    }
+    $linkCategory = $repo->saveCategory(null, '外部网站', 'external', 2);
+    try {
+        $repo->saveCategorySettings($linkCategory, 'link', 'javascript:alert(1)', '', '', '');
+        throw new RuntimeException('Unsafe category link was accepted.');
+    } catch (InvalidArgumentException $error) {
+        check(str_contains($error->getMessage(), '跳转链接'), 'Unsafe link rejection failed for the wrong reason.');
+    }
+    foreach (array('//example.com/escape', 'https://user:password@example.com/', '/category/external') as $unsafeLink) {
+        try {
+            $repo->saveCategorySettings($linkCategory, 'link', $unsafeLink, '', '', '');
+            throw new RuntimeException('Unsafe or looping category link was accepted.');
+        } catch (InvalidArgumentException $error) {
+            check(str_contains($error->getMessage(), '跳转链接'), 'Link validation failed for the wrong reason.');
+        }
+    }
+    $repo->saveCategorySettings($linkCategory, 'link', 'https://example.com/help?a=1&b=2', '', '', '');
+    check(View::categoryLink($repo->category($linkCategory)) === 'https://example.com/help?a=1&b=2', 'External category link failed.');
+    $repo->deleteCategory($singleCategory);
+    check($pdo->query('SELECT COUNT(*) FROM category_settings')->fetchColumn() == 1, 'Category settings did not cascade on deletion.');
+    $repo->deleteCategory($linkCategory);
     $models = new ContentModelRepository($pdo);
     check($models->defaultModel()['slug'] === 'article', 'Default content model is missing.');
     $productModel = $models->saveModel(null, '产品模型', 'product');
@@ -216,22 +250,27 @@ try {
     $legacy->exec("INSERT INTO users VALUES (7, 'old-admin', 'hash', 1)");
     $legacy->exec("INSERT INTO posts VALUES (9, NULL, '旧文章', 'legacy', '正文', 'published', 1, 1)");
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 7, 'Legacy schema version was not upgraded.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 8, 'Legacy schema version was not upgraded.');
     check(in_array('parent_id', array_column($legacy->query('PRAGMA table_info(categories)')->fetchAll(), 'name'), true), 'Legacy categories did not gain a parent column.');
+    check((int) $legacy->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'category_settings'")->fetchColumn() === 1, 'Legacy schema did not gain category settings.');
     check((int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Legacy content was lost.');
     check((new AccessRepository($legacy))->admins()[0]['role_slug'] === 'owner', 'Legacy administrator was not migrated.');
     $legacy->exec('DROP TABLE pages');
     $legacy->exec('DROP TABLE site_settings');
     $legacy->exec('UPDATE cms_schema SET version = 2 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 7 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 2 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 8 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 2 failed.');
     $legacy->exec('DROP TABLE post_field_values');
     $legacy->exec('DROP TABLE category_models');
     $legacy->exec('DROP TABLE model_fields');
     $legacy->exec('DROP TABLE content_models');
     $legacy->exec('UPDATE cms_schema SET version = 5 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 7 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1 && (new ContentModelRepository($legacy))->defaultModel()['slug'] === 'article', 'Upgrade from schema version 5 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 8 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1 && (new ContentModelRepository($legacy))->defaultModel()['slug'] === 'article', 'Upgrade from schema version 5 failed.');
+    $legacy->exec('DROP TABLE category_settings');
+    $legacy->exec('UPDATE cms_schema SET version = 7 WHERE id = 1');
+    Migrator::ensure($legacy);
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 8 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 7 failed.');
 
     $pages = new PageRepository($pdo);
     $pageId = $pages->save(null, '关于', 'about', '简介', 'draft', 5);

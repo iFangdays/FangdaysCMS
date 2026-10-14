@@ -237,6 +237,31 @@ final class App
             $this->saveCategory($pdo, $repo, null, $base);
             return;
         }
+        if (preg_match('#^/admin/categories/([1-9][0-9]*)/single$#D', $path, $match)) {
+            $id = (int) $match[1];
+            $category = $repo->category($id);
+            if ($category === null || $category['type'] !== 'single') {
+                $this->notFound();
+            }
+            if ($method === 'POST') {
+                $this->requireCsrf();
+                $category['single_title'] = self::postString('title');
+                $category['single_body'] = self::postString('body');
+                $category['single_status'] = self::postString('status');
+                try {
+                    $repo->saveSingle($id, $category['single_title'], $category['single_body'], $category['single_status']);
+                    $_SESSION['flash'] = '单页栏目内容已保存。';
+                    $this->redirect('/admin/categories/' . $id . '/single');
+                } catch (InvalidArgumentException $error) {
+                    View::render('admin/category-single', $base + array('page_title' => '编辑单页栏目', 'category' => $category, 'error' => $error->getMessage()), 422);
+                }
+            } elseif ($method === 'GET') {
+                View::render('admin/category-single', $base + array('page_title' => '编辑单页栏目', 'category' => $category, 'error' => null));
+            } else {
+                $this->notFound();
+            }
+            return;
+        }
         if (preg_match('#^/admin/categories/([1-9][0-9]*)/edit$#D', $path, $match)) {
             $id = (int) $match[1];
             $category = $repo->category($id);
@@ -443,10 +468,21 @@ final class App
             if ($category === null) {
                 $this->notFound();
             }
+            if ($category['type'] === 'link') {
+                header('Location: ' . $category['outlink'], true, 302);
+                exit;
+            }
+            if ($category['type'] === 'single') {
+                if ($category['single_status'] !== 'published') {
+                    $this->notFound();
+                }
+                View::render('site/category-single', $base + array('page_title' => $category['name'], 'seo_title' => $category['seo_title'], 'seo_keywords' => $category['seo_keywords'], 'seo_description' => $category['seo_description'], 'category' => $category, 'breadcrumb' => $repo->categoryAncestors((int) $category['id'])));
+                return;
+            }
             $members = $base['member'] !== null;
             $totalPages = (int) ceil($repo->countPosts('published', (int) $category['id'], $members) / 20);
             $page = self::boundedPage($totalPages);
-            View::render('site/category', $base + array('page_title' => $category['name'], 'category' => $category, 'breadcrumb' => $repo->categoryAncestors((int) $category['id']), 'child_categories' => $repo->childCategories((int) $category['id']), 'posts' => $repo->posts('published', (int) $category['id'], $members, null, null, $page), 'page' => $page, 'total_pages' => $totalPages));
+            View::render('site/category', $base + array('page_title' => $category['name'], 'seo_title' => $category['seo_title'], 'seo_keywords' => $category['seo_keywords'], 'seo_description' => $category['seo_description'], 'category' => $category, 'breadcrumb' => $repo->categoryAncestors((int) $category['id']), 'child_categories' => $repo->childCategories((int) $category['id']), 'posts' => $repo->posts('published', (int) $category['id'], $members, null, null, $page), 'page' => $page, 'total_pages' => $totalPages));
             return;
         }
         if (preg_match('#^/tag/([a-z0-9-]+)$#D', $path, $match)) {
@@ -489,7 +525,8 @@ final class App
     private function saveCategory(PDO $pdo, ContentRepository $repo, ?int $id, array $base): void
     {
         $this->requireCsrf();
-        $input = array('name' => self::postString('name'), 'slug' => self::postString('slug'), 'sort_order' => self::postString('sort_order'), 'model_id' => self::postString('model_id'), 'parent_id' => self::postString('parent_id'));
+        $current = $id === null ? null : $repo->category($id);
+        $input = array('name' => self::postString('name'), 'slug' => self::postString('slug'), 'sort_order' => self::postString('sort_order'), 'model_id' => self::postString('model_id'), 'parent_id' => self::postString('parent_id'), 'type' => array_key_exists('type', $_POST) ? self::postString('type') : ($current['type'] ?? 'list'), 'outlink' => array_key_exists('outlink', $_POST) ? self::postString('outlink') : ($current['outlink'] ?? ''), 'seo_title' => array_key_exists('seo_title', $_POST) ? self::postString('seo_title') : ($current['seo_title'] ?? ''), 'seo_keywords' => array_key_exists('seo_keywords', $_POST) ? self::postString('seo_keywords') : ($current['seo_keywords'] ?? ''), 'seo_description' => array_key_exists('seo_description', $_POST) ? self::postString('seo_description') : ($current['seo_description'] ?? ''));
         try {
             $sortOrder = filter_var($input['sort_order'], FILTER_VALIDATE_INT);
             if ($sortOrder === false) {
@@ -508,6 +545,7 @@ final class App
             try {
                 $categoryId = $repo->saveCategory($id, $input['name'], $input['slug'], $sortOrder, $parentId);
                 $models->bindCategory($categoryId, $modelId);
+                $repo->saveCategorySettings($categoryId, $input['type'], $input['outlink'], $input['seo_title'], $input['seo_keywords'], $input['seo_description']);
                 $pdo->commit();
             } catch (Throwable $error) {
                 $pdo->rollBack();
