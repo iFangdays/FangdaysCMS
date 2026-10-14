@@ -230,7 +230,7 @@ final class App
             return;
         }
         if ($path === '/admin/categories/new' && $method === 'GET') {
-            View::render('admin/category-form', $base + array('page_title' => '新建栏目', 'category' => null, 'models' => (new ContentModelRepository($pdo))->all(), 'error' => null));
+            View::render('admin/category-form', $base + array('page_title' => '新建栏目', 'category' => null, 'parents' => $repo->parentChoices(null), 'models' => (new ContentModelRepository($pdo))->all(), 'error' => null));
             return;
         }
         if ($path === '/admin/categories' && $method === 'POST') {
@@ -246,7 +246,7 @@ final class App
             if ($method === 'POST') {
                 $this->saveCategory($pdo, $repo, $id, $base);
             } elseif ($method === 'GET') {
-                View::render('admin/category-form', $base + array('page_title' => '编辑栏目', 'category' => $category, 'models' => (new ContentModelRepository($pdo))->all(), 'error' => null));
+                View::render('admin/category-form', $base + array('page_title' => '编辑栏目', 'category' => $category, 'parents' => $repo->parentChoices($id), 'models' => (new ContentModelRepository($pdo))->all(), 'error' => null));
             } else {
                 $this->notFound();
             }
@@ -254,8 +254,12 @@ final class App
         }
         if (preg_match('#^/admin/categories/([1-9][0-9]*)/delete$#D', $path, $match) && $method === 'POST') {
             $this->requireCsrf();
-            $repo->deleteCategory((int) $match[1]);
-            $_SESSION['flash'] = '栏目已删除，原文章保留。';
+            try {
+                $repo->deleteCategory((int) $match[1]);
+                $_SESSION['flash'] = '栏目已删除，原文章保留。';
+            } catch (InvalidArgumentException $error) {
+                $_SESSION['flash'] = '操作失败：' . $error->getMessage();
+            }
             $this->redirect('/admin/categories');
         }
         if ($path === '/admin/posts' && $method === 'GET') {
@@ -416,7 +420,7 @@ final class App
         if ($method !== 'GET') {
             $this->notFound();
         }
-        $base['categories'] = $repo->categories();
+        $base['categories'] = $repo->rootCategories();
         $base['tags'] = $tags->all();
         $base['pages'] = $pages->published();
         if (preg_match('#^/page/([a-z0-9-]+)$#D', $path, $match)) {
@@ -431,7 +435,7 @@ final class App
             $members = $base['member'] !== null;
             $totalPages = (int) ceil($repo->countPosts('published', null, $members) / 20);
             $page = self::boundedPage($totalPages);
-            View::render('site/home', $base + array('page_title' => '首页', 'categories' => $repo->categories(), 'tags' => $tags->all(), 'posts' => $repo->posts('published', null, $members, null, null, $page), 'page' => $page, 'total_pages' => $totalPages));
+            View::render('site/home', $base + array('page_title' => '首页', 'categories' => $repo->rootCategories(), 'tags' => $tags->all(), 'posts' => $repo->posts('published', null, $members, null, null, $page), 'page' => $page, 'total_pages' => $totalPages));
             return;
         }
         if (preg_match('#^/category/([a-z0-9-]+)$#D', $path, $match)) {
@@ -442,7 +446,7 @@ final class App
             $members = $base['member'] !== null;
             $totalPages = (int) ceil($repo->countPosts('published', (int) $category['id'], $members) / 20);
             $page = self::boundedPage($totalPages);
-            View::render('site/category', $base + array('page_title' => $category['name'], 'category' => $category, 'posts' => $repo->posts('published', (int) $category['id'], $members, null, null, $page), 'page' => $page, 'total_pages' => $totalPages));
+            View::render('site/category', $base + array('page_title' => $category['name'], 'category' => $category, 'breadcrumb' => $repo->categoryAncestors((int) $category['id']), 'child_categories' => $repo->childCategories((int) $category['id']), 'posts' => $repo->posts('published', (int) $category['id'], $members, null, null, $page), 'page' => $page, 'total_pages' => $totalPages));
             return;
         }
         if (preg_match('#^/tag/([a-z0-9-]+)$#D', $path, $match)) {
@@ -476,7 +480,7 @@ final class App
                 View::render('member-required', $base + array('page_title' => '会员内容'), 403);
                 return;
             }
-            View::render('site/post', $base + array('page_title' => $post['title'], 'post' => $post, 'tags' => $tags->forPost((int) $post['id']), 'extra_fields' => (new ContentModelRepository($pdo))->publicFieldsForPost((int) $post['id'], $post['category_id'] === null ? null : (int) $post['category_id'])));
+            View::render('site/post', $base + array('page_title' => $post['title'], 'post' => $post, 'breadcrumb' => $post['category_id'] === null ? array() : $repo->categoryAncestors((int) $post['category_id']), 'tags' => $tags->forPost((int) $post['id']), 'extra_fields' => (new ContentModelRepository($pdo))->publicFieldsForPost((int) $post['id'], $post['category_id'] === null ? null : (int) $post['category_id'])));
             return;
         }
         $this->notFound();
@@ -485,11 +489,15 @@ final class App
     private function saveCategory(PDO $pdo, ContentRepository $repo, ?int $id, array $base): void
     {
         $this->requireCsrf();
-        $input = array('name' => self::postString('name'), 'slug' => self::postString('slug'), 'sort_order' => self::postString('sort_order'), 'model_id' => self::postString('model_id'));
+        $input = array('name' => self::postString('name'), 'slug' => self::postString('slug'), 'sort_order' => self::postString('sort_order'), 'model_id' => self::postString('model_id'), 'parent_id' => self::postString('parent_id'));
         try {
             $sortOrder = filter_var($input['sort_order'], FILTER_VALIDATE_INT);
             if ($sortOrder === false) {
                 throw new InvalidArgumentException('栏目排序必须是整数。');
+            }
+            $parentId = $input['parent_id'] === '' ? null : filter_var($input['parent_id'], FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
+            if ($parentId === false) {
+                throw new InvalidArgumentException('请选择有效的上级栏目。');
             }
             $models = new ContentModelRepository($pdo);
             $modelId = $input['model_id'] === '' ? (int) $models->defaultModel()['id'] : filter_var($input['model_id'], FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
@@ -498,7 +506,7 @@ final class App
             }
             $pdo->beginTransaction();
             try {
-                $categoryId = $repo->saveCategory($id, $input['name'], $input['slug'], $sortOrder);
+                $categoryId = $repo->saveCategory($id, $input['name'], $input['slug'], $sortOrder, $parentId);
                 $models->bindCategory($categoryId, $modelId);
                 $pdo->commit();
             } catch (Throwable $error) {
@@ -512,7 +520,7 @@ final class App
         } catch (PDOException $error) {
             $message = '保存失败，请检查栏目别名是否重复。';
         }
-        View::render('admin/category-form', $base + array('page_title' => $id === null ? '新建栏目' : '编辑栏目', 'category' => $input + array('id' => $id), 'models' => (new ContentModelRepository($pdo))->all(), 'error' => $message), 422);
+        View::render('admin/category-form', $base + array('page_title' => $id === null ? '新建栏目' : '编辑栏目', 'category' => $input + array('id' => $id), 'parents' => $repo->parentChoices($id), 'models' => (new ContentModelRepository($pdo))->all(), 'error' => $message), 422);
     }
 
     private function savePost(PDO $pdo, ContentRepository $repo, ?int $id, array $base): void

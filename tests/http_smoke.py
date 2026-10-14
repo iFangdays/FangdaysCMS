@@ -92,7 +92,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             },
         )
         assert status == 200 and "后台登录" in login, login[:400]
-        assert "schema version 6 is ready" in command(site / "bin/migrate.php")
+        assert "schema version 7 is ready" in command(site / "bin/migrate.php")
         status, unlicensed = request("/")
         assert status == 503 and "尚未获得有效授权" in unlicensed
 
@@ -375,7 +375,44 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         status, deleted_model = request(f"/admin/models/{model_id}/delete", {"_csrf": csrf(model_list)})
         assert status == 200 and "内容模型已删除" in deleted_model
 
-        print("FangdaysCMS HTTP install, admin, license, and public-site smoke test passed")
+        status, child_form = request("/admin/categories/new")
+        status, child_list = request("/admin/categories", {
+            "_csrf": csrf(child_form), "name": "公司新闻", "slug": "company-news",
+            "sort_order": "2", "parent_id": "1", "model_id": "1"
+        })
+        assert status == 200 and "公司新闻" in child_list
+        child_id = re.search(r'公司新闻.*?/admin/categories/(\d+)/edit', child_list, re.S).group(1)
+        status, grandchild_form = request("/admin/categories/new")
+        status, grandchild_list = request("/admin/categories", {
+            "_csrf": csrf(grandchild_form), "name": "行业动态", "slug": "industry-news",
+            "sort_order": "3", "parent_id": child_id, "model_id": "1"
+        })
+        assert status == 200 and "行业动态" in grandchild_list
+        grandchild_id = re.search(r'行业动态.*?/admin/categories/(\d+)/edit', grandchild_list, re.S).group(1)
+        status, nested_form = request("/admin/posts/new")
+        status, nested_list = request("/admin/posts", {
+            "_csrf": csrf(nested_form), "title": "层级文章", "slug": "nested-post",
+            "category_id": grandchild_id, "body": "子栏目正文", "status": "published", "visibility": "public"
+        })
+        assert status == 200 and "层级文章" in nested_list
+        status, parent_page = request("/category/news")
+        assert status == 200 and "层级文章" in parent_page and "/category/company-news" in parent_page
+        status, child_page = request("/category/company-news")
+        assert status == 200 and "层级文章" in child_page and "/category/industry-news" in child_page
+        status, grandchild_page = request("/category/industry-news")
+        assert status == 200 and "层级文章" in grandchild_page and "公司新闻" in grandchild_page
+        assert "层级文章" in request("/admin/posts?category_id=1&q=%E5%B1%82%E7%BA%A7")[1]
+        status, parent_edit = request("/admin/categories/1/edit")
+        assert status == 200 and f'<option value="{child_id}"' not in parent_edit
+        status, cycle = request("/admin/categories/1/edit", {
+            "_csrf": csrf(parent_edit), "name": "新闻", "slug": "news", "sort_order": "1",
+            "parent_id": grandchild_id, "model_id": "1"
+        })
+        assert status == 422 and "循环层级" in cycle
+        status, blocked_delete = request("/admin/categories/1/delete", {"_csrf": csrf(parent_edit)})
+        assert status == 200 and "还有子栏目" in blocked_delete
+
+        print("FangdaysCMS HTTP install, admin, category hierarchy, license, and public-site smoke test passed")
         if os.environ.get("FANGDAYS_PREVIEW") == "1":
             print(f"Preview running at {base}", flush=True)
             input("Press Enter to stop preview: ")

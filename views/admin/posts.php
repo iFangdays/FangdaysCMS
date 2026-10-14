@@ -5,7 +5,7 @@
 <section class="admin-filter-panel" aria-label="筛选文章">
   <form class="admin-filter-form" method="get" action="/admin/posts">
     <label>关键词<input class="layui-input" type="search" name="q" maxlength="100" placeholder="搜索标题、正文或扩展字段" value="<?= \FangdaysCMS\Cms\View::e($filters['q']) ?>"></label>
-    <label>栏目<select name="category_id"><option value="">全部栏目</option><?php foreach ($categories as $category): ?><option value="<?= (int) $category['id'] ?>" <?= (string) $filters['category_id'] === (string) $category['id'] ? 'selected' : '' ?>><?= \FangdaysCMS\Cms\View::e($category['name']) ?></option><?php endforeach; ?></select></label>
+    <label>栏目<select name="category_id"><option value="">全部栏目</option><?php foreach ($categories as $category): ?><option value="<?= (int) $category['id'] ?>" <?= (string) $filters['category_id'] === (string) $category['id'] ? 'selected' : '' ?>><?= \FangdaysCMS\Cms\View::e(str_repeat('— ', min(12, (int) $category['depth'])) . $category['name']) ?></option><?php endforeach; ?></select></label>
     <label>状态<select name="status"><option value="">全部状态</option><option value="published" <?= $filters['status'] === 'published' ? 'selected' : '' ?>>已发布</option><option value="draft" <?= $filters['status'] === 'draft' ? 'selected' : '' ?>>草稿</option></select></label>
     <div class="admin-filter-actions"><button class="layui-btn" type="submit"><i class="fa fa-search" aria-hidden="true"></i> 搜索</button><a class="layui-btn layui-btn-primary" href="/admin/posts">清除搜索</a></div>
   </form>

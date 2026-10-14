@@ -8,7 +8,7 @@ use PDO;
 /** Additive schema upgrade from the original FangdaysCMS installation. */
 final class Migrator
 {
-    public const VERSION = 6;
+    public const VERSION = 7;
 
     public static function ensure(PDO $pdo): void
     {
@@ -26,6 +26,11 @@ final class Migrator
         try {
             foreach (self::statements($mysql) as $statement) {
                 $pdo->exec($statement);
+            }
+            if (! self::hasCategoryParent($pdo, $mysql)) {
+                $pdo->exec($mysql
+                    ? 'ALTER TABLE categories ADD COLUMN parent_id BIGINT UNSIGNED NULL, ADD CONSTRAINT fk_categories_parent FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE RESTRICT'
+                    : 'ALTER TABLE categories ADD COLUMN parent_id INTEGER NULL REFERENCES categories(id) ON DELETE RESTRICT');
             }
             $ignore = $mysql ? 'INSERT IGNORE' : 'INSERT OR IGNORE';
             foreach (array('owner' => '站点所有者', 'editor' => '编辑', 'viewer' => '只读') as $slug => $name) {
@@ -48,8 +53,8 @@ final class Migrator
             $pdo->exec($ignore . ' INTO user_roles (user_id, role_id) SELECT id, ' . $roleIds['owner'] . ' FROM users');
             $pdo->exec($ignore . " INTO content_models (slug, name) VALUES ('article', '文章模型')");
             $pdo->exec($mysql
-                ? 'INSERT INTO cms_schema (id, version) VALUES (1, 6) ON DUPLICATE KEY UPDATE version = 6'
-                : 'INSERT INTO cms_schema (id, version) VALUES (1, 6) ON CONFLICT(id) DO UPDATE SET version = 6');
+                ? 'INSERT INTO cms_schema (id, version) VALUES (1, 7) ON DUPLICATE KEY UPDATE version = 7'
+                : 'INSERT INTO cms_schema (id, version) VALUES (1, 7) ON CONFLICT(id) DO UPDATE SET version = 7');
             if (! $mysql) {
                 $pdo->commit();
             }
@@ -59,6 +64,19 @@ final class Migrator
             }
             throw $error;
         }
+    }
+
+    private static function hasCategoryParent(PDO $pdo, bool $mysql): bool
+    {
+        if ($mysql) {
+            return (bool) $pdo->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'categories' AND COLUMN_NAME = 'parent_id'")->fetchColumn();
+        }
+        foreach ($pdo->query('PRAGMA table_info(categories)') as $column) {
+            if ($column['name'] === 'parent_id') {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static function statements(bool $mysql): array

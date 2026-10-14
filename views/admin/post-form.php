@@ -10,7 +10,7 @@
     <label>文章标题<input name="title" required maxlength="100" value="<?= \FangdaysCMS\Cms\View::e($post['title'] ?? '') ?>" placeholder="请输入文章标题"></label>
     <div class="field-row">
       <label>URL 别名<input name="slug" required maxlength="160" pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="hello-world" value="<?= \FangdaysCMS\Cms\View::e($post['slug'] ?? '') ?>"><small>小写字母、数字与连字符。</small></label>
-      <label>栏目<select name="category_id"><option value="">未分类</option><?php foreach ($categories as $category): ?><option value="<?= (int) $category['id'] ?>" <?= (string) ($post['category_id'] ?? '') === (string) $category['id'] ? 'selected' : '' ?>><?= \FangdaysCMS\Cms\View::e($category['name']) ?></option><?php endforeach; ?></select><?php if (! $categories): ?><small>可先到栏目管理创建分类。</small><?php endif; ?></label>
+      <label>栏目<select name="category_id"><option value="">未分类</option><?php foreach ($categories as $category): ?><option value="<?= (int) $category['id'] ?>" <?= (string) ($post['category_id'] ?? '') === (string) $category['id'] ? 'selected' : '' ?>><?= \FangdaysCMS\Cms\View::e(str_repeat('— ', min(12, (int) $category['depth'])) . $category['name']) ?></option><?php endforeach; ?></select><?php if (! $categories): ?><small>可先到栏目管理创建分类。</small><?php endif; ?></label>
     </div>
     <label>正文<textarea name="body" rows="20" placeholder="输入文章正文"><?= \FangdaysCMS\Cms\View::e($post['body'] ?? '') ?></textarea><small>当前正文以纯文本安全展示，换行会保留。</small></label>
     <?php foreach ($model_form['fields'] as $modelId => $modelFields): ?><?php if ($modelFields): ?>

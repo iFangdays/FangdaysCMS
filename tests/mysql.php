@@ -72,6 +72,13 @@ try {
     if ($models->publicFieldsForPost($post, $category)[0]['value'] !== '红色' || $repo->countPosts('published', null, true, null, '红色') !== 1) {
         throw new RuntimeException('MySQL content model field failed.');
     }
+    $childCategory = $repo->saveCategory(null, '子栏目', 'mysql-child', 2, $category);
+    $childPost = $repo->savePost(null, $childCategory, '层级文章', 'mysql-nested-post', '正文', 'published');
+    if ($repo->countPosts('published', $category) !== 2 || (int) $repo->categories()[1]['depth'] !== 1) {
+        throw new RuntimeException('MySQL category hierarchy failed.');
+    }
+    $repo->deletePost($childPost);
+    $repo->deleteCategory($childCategory);
     $repo->deleteCategory($category);
     if ($repo->post($post)['category_id'] !== null) {
         throw new RuntimeException('MySQL category deletion did not preserve article.');
@@ -111,6 +118,12 @@ try {
     (new MediaRepository($pdo, $root . '/public'))->setCover($post, (int) $pdo->lastInsertId());
     if ($repo->publishedPostBySlug('mysql-post')['cover_path'] === null) {
         throw new RuntimeException('MySQL post cover failed.');
+    }
+    $pdo->exec('ALTER TABLE categories DROP FOREIGN KEY fk_categories_parent, DROP COLUMN parent_id');
+    $pdo->exec('UPDATE cms_schema SET version = 6 WHERE id = 1');
+    \FangdaysCMS\Cms\Migrator::ensure($pdo);
+    if ((int) $pdo->query('SELECT version FROM cms_schema WHERE id = 1')->fetchColumn() !== 7 || (int) $pdo->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'categories' AND COLUMN_NAME = 'parent_id'")->fetchColumn() !== 1 || $repo->post($post) === null) {
+        throw new RuntimeException('MySQL upgrade from schema version 6 failed.');
     }
     echo "FangdaysCMS MySQL schema, content, tags, membership, and roles passed\n";
 } finally {

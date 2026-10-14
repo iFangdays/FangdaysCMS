@@ -14,54 +14,158 @@ final class ContentRepository
 
     public function categories(): array
     {
-        return $this->pdo->query('SELECT c.id, c.name, c.slug, c.sort_order, cm.model_id FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id ORDER BY c.sort_order ASC, c.id ASC')->fetchAll();
+        $rows = $this->pdo->query('SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id ORDER BY c.sort_order ASC, c.id ASC')->fetchAll();
+        return self::treeRows($rows);
     }
 
     public function categoriesWithPostCounts(): array
     {
-        return $this->pdo->query('SELECT c.id, c.name, c.slug, c.sort_order, cm.model_id, m.name AS model_name, COUNT(p.id) AS post_count FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN content_models m ON m.id = cm.model_id LEFT JOIN posts p ON p.category_id = c.id GROUP BY c.id, c.name, c.slug, c.sort_order, cm.model_id, m.name ORDER BY c.sort_order ASC, c.id ASC')->fetchAll();
+        $rows = $this->pdo->query('SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, m.name AS model_name, COUNT(p.id) AS post_count FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN content_models m ON m.id = cm.model_id LEFT JOIN posts p ON p.category_id = c.id GROUP BY c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, m.name ORDER BY c.sort_order ASC, c.id ASC')->fetchAll();
+        $rows = self::treeRows($rows);
+        $counts = array();
+        foreach ($rows as $row) {
+            $counts[(int) $row['id']] = (int) $row['post_count'];
+        }
+        foreach (array_reverse($rows) as $row) {
+            if ($row['parent_id'] !== null) {
+                $counts[(int) $row['parent_id']] = ($counts[(int) $row['parent_id']] ?? 0) + $counts[(int) $row['id']];
+            }
+        }
+        foreach ($rows as &$row) {
+            $row['post_count'] = $counts[(int) $row['id']];
+        }
+        return $rows;
+    }
+
+    public function rootCategories(): array
+    {
+        return array_values(array_filter($this->categories(), static fn (array $category): bool => $category['parent_id'] === null));
+    }
+
+    public function childCategories(int $parentId): array
+    {
+        return array_values(array_filter($this->categories(), static fn (array $category): bool => (int) $category['parent_id'] === $parentId));
+    }
+
+    public function parentChoices(?int $categoryId): array
+    {
+        $excluded = $categoryId === null ? array() : array_flip($this->categoryDescendantIds($categoryId));
+        return array_values(array_filter($this->categories(), static fn (array $category): bool => ! isset($excluded[(int) $category['id']])));
+    }
+
+    public function categoryAncestors(int $categoryId): array
+    {
+        $lookup = array_column($this->categories(), null, 'id');
+        $ancestors = array();
+        $seen = array();
+        $current = $categoryId;
+        while (isset($lookup[$current]) && ! isset($seen[$current])) {
+            $seen[$current] = true;
+            array_unshift($ancestors, $lookup[$current]);
+            $current = (int) ($lookup[$current]['parent_id'] ?? 0);
+        }
+        return $ancestors;
+    }
+
+    public function categoryDescendantIds(int $categoryId): array
+    {
+        $children = array();
+        foreach ($this->categories() as $category) {
+            $children[(int) ($category['parent_id'] ?? 0)][] = (int) $category['id'];
+        }
+        $ids = array();
+        $queue = array($categoryId);
+        while ($queue) {
+            $current = array_shift($queue);
+            if (isset($ids[$current])) {
+                continue;
+            }
+            $ids[$current] = true;
+            foreach ($children[$current] ?? array() as $childId) {
+                $queue[] = $childId;
+            }
+        }
+        return array_keys($ids);
     }
 
     public function category(int $id): ?array
     {
-        $stmt = $this->pdo->prepare('SELECT c.id, c.name, c.slug, c.sort_order, cm.model_id FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id WHERE c.id = ?');
+        $stmt = $this->pdo->prepare('SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id WHERE c.id = ?');
         $stmt->execute(array($id));
         return $stmt->fetch() ?: null;
     }
 
     public function categoryBySlug(string $slug): ?array
     {
-        $stmt = $this->pdo->prepare('SELECT c.id, c.name, c.slug, c.sort_order, cm.model_id FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id WHERE c.slug = ?');
+        $stmt = $this->pdo->prepare('SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id WHERE c.slug = ?');
         $stmt->execute(array($slug));
         return $stmt->fetch() ?: null;
     }
 
-    public function saveCategory(?int $id, string $name, string $slug, int $sortOrder): int
+    public function saveCategory(?int $id, string $name, string $slug, int $sortOrder, ?int $parentId = null): int
     {
         $name = trim($name);
         self::checkSlug($slug);
         if ($name === '' || strlen($name) > 300 || $sortOrder < 0 || $sortOrder > 1000000) {
             throw new InvalidArgumentException('Category name or order is invalid.');
         }
+        if ($id !== null && $this->category($id) === null) {
+            throw new InvalidArgumentException('栏目不存在。');
+        }
+        if ($parentId !== null && ($this->category($parentId) === null || ($id !== null && in_array($parentId, $this->categoryDescendantIds($id), true)))) {
+            throw new InvalidArgumentException('上级栏目不存在，或会形成循环层级。');
+        }
         if ($id === null) {
-            $stmt = $this->pdo->prepare('INSERT INTO categories (name, slug, sort_order) VALUES (?, ?, ?)');
-            $stmt->execute(array($name, $slug, $sortOrder));
+            $stmt = $this->pdo->prepare('INSERT INTO categories (parent_id, name, slug, sort_order) VALUES (?, ?, ?, ?)');
+            $stmt->execute(array($parentId, $name, $slug, $sortOrder));
             return (int) $this->pdo->lastInsertId();
         }
-        $stmt = $this->pdo->prepare('UPDATE categories SET name = ?, slug = ?, sort_order = ? WHERE id = ?');
-        $stmt->execute(array($name, $slug, $sortOrder, $id));
+        $stmt = $this->pdo->prepare('UPDATE categories SET parent_id = ?, name = ?, slug = ?, sort_order = ? WHERE id = ?');
+        $stmt->execute(array($parentId, $name, $slug, $sortOrder, $id));
         return $id;
     }
 
     public function deleteCategory(int $id): void
     {
+        if (count($this->categoryDescendantIds($id)) > 1) {
+            throw new InvalidArgumentException('该栏目还有子栏目，请先调整子栏目归属。');
+        }
         $stmt = $this->pdo->prepare('DELETE FROM categories WHERE id = ?');
         $stmt->execute(array($id));
     }
 
+    private static function treeRows(array $rows): array
+    {
+        $children = array();
+        foreach ($rows as $row) {
+            $children[(int) ($row['parent_id'] ?? 0)][] = $row;
+        }
+        $result = array();
+        $seen = array();
+        $walk = static function (int $parentId, int $depth) use (&$walk, &$result, &$seen, $children): void {
+            foreach ($children[$parentId] ?? array() as $row) {
+                $id = (int) $row['id'];
+                if (isset($seen[$id])) {
+                    continue;
+                }
+                $seen[$id] = true;
+                $row['depth'] = $depth;
+                $result[] = $row;
+                $walk($id, $depth + 1);
+            }
+        };
+        $walk(0, 0);
+        foreach ($rows as $row) {
+            if (! isset($seen[(int) $row['id']])) {
+                $walk((int) $row['parent_id'], 0);
+            }
+        }
+        return $result;
+    }
+
     public function posts(?string $status = null, ?int $categoryId = null, bool $includeMembers = false, ?int $tagId = null, ?string $query = null, int $page = 1): array
     {
-        [$where, $params] = self::postFilters($status, $categoryId, $includeMembers, $tagId, $query);
+        [$where, $params] = $this->postFilters($status, $categoryId, $includeMembers, $tagId, $query);
         $sql = "SELECT p.id, p.category_id, p.title, p.slug, p.body, p.status, p.created_at, p.updated_at, c.name AS category_name, COALESCE(v.visibility, 'public') AS visibility, m.path AS cover_path FROM posts p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN post_visibility v ON v.post_id = p.id LEFT JOIN post_cover pc ON pc.post_id = p.id LEFT JOIN media m ON m.id = pc.media_id";
         if ($where) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
@@ -79,7 +183,7 @@ final class ContentRepository
 
     public function countPosts(?string $status = null, ?int $categoryId = null, bool $includeMembers = false, ?int $tagId = null, ?string $query = null): int
     {
-        [$where, $params] = self::postFilters($status, $categoryId, $includeMembers, $tagId, $query);
+        [$where, $params] = $this->postFilters($status, $categoryId, $includeMembers, $tagId, $query);
         $sql = 'SELECT COUNT(*) FROM posts p LEFT JOIN post_visibility v ON v.post_id = p.id';
         if ($where) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
@@ -175,7 +279,7 @@ final class ContentRepository
         }
     }
 
-    private static function postFilters(?string $status, ?int $categoryId, bool $includeMembers, ?int $tagId, ?string $query): array
+    private function postFilters(?string $status, ?int $categoryId, bool $includeMembers, ?int $tagId, ?string $query): array
     {
         $where = array();
         $params = array();
@@ -184,8 +288,9 @@ final class ContentRepository
             $params[] = $status;
         }
         if ($categoryId !== null) {
-            $where[] = 'p.category_id = ?';
-            $params[] = $categoryId;
+            $categoryIds = $this->categoryDescendantIds($categoryId);
+            $where[] = 'p.category_id IN (' . implode(', ', array_fill(0, count($categoryIds), '?')) . ')';
+            array_push($params, ...$categoryIds);
         }
         if ($status === 'published' && ! $includeMembers) {
             $where[] = "COALESCE(v.visibility, 'public') = 'public'";

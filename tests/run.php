@@ -77,6 +77,29 @@ try {
     check($repo->publishedPostBySlug('first-post')['title'] === '第一篇文章', 'Published post lookup failed.');
     check(count($repo->posts('published', $categoryId)) === 1, 'Category listing failed.');
     check((int) $repo->categoriesWithPostCounts()[0]['post_count'] === 1, 'Category post count failed.');
+    $childCategory = $repo->saveCategory(null, '公司新闻', 'company-news', 2, $categoryId);
+    $grandchildCategory = $repo->saveCategory(null, '行业动态', 'industry-news', 3, $childCategory);
+    $nestedPost = $repo->savePost(null, $grandchildCategory, '层级文章', 'nested-post', '子栏目内容', 'published');
+    check(array_column($repo->categories(), 'depth') === array(0, 1, 2), 'Category tree order or depth failed.');
+    check(array_column($repo->categoryAncestors($grandchildCategory), 'name') === array('新闻', '公司新闻', '行业动态'), 'Category ancestors failed.');
+    check(count($repo->rootCategories()) === 1 && count($repo->childCategories($categoryId)) === 1, 'Category hierarchy listing failed.');
+    check($repo->countPosts('published', $categoryId) === 2 && count($repo->posts('published', $categoryId)) === 2, 'Parent category did not include descendant posts.');
+    check((int) $repo->categoriesWithPostCounts()[0]['post_count'] === 2, 'Parent category count omitted descendant posts.');
+    try {
+        $repo->saveCategory($categoryId, '新闻', 'news', 1, $grandchildCategory);
+        throw new RuntimeException('Category cycle was accepted.');
+    } catch (InvalidArgumentException $error) {
+        check(str_contains($error->getMessage(), '循环'), 'Category cycle failed for the wrong reason.');
+    }
+    try {
+        $repo->deleteCategory($categoryId);
+        throw new RuntimeException('Parent category with children was deleted.');
+    } catch (InvalidArgumentException $error) {
+        check(str_contains($error->getMessage(), '子栏目'), 'Parent deletion failed for the wrong reason.');
+    }
+    $repo->deletePost($nestedPost);
+    $repo->deleteCategory($grandchildCategory);
+    $repo->deleteCategory($childCategory);
     $repo->deleteCategory($categoryId);
     check($repo->post($postId)['category_id'] === null, 'Deleting category should keep its articles.');
     $models = new ContentModelRepository($pdo);
@@ -193,21 +216,22 @@ try {
     $legacy->exec("INSERT INTO users VALUES (7, 'old-admin', 'hash', 1)");
     $legacy->exec("INSERT INTO posts VALUES (9, NULL, '旧文章', 'legacy', '正文', 'published', 1, 1)");
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 6, 'Legacy schema version was not upgraded.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 7, 'Legacy schema version was not upgraded.');
+    check(in_array('parent_id', array_column($legacy->query('PRAGMA table_info(categories)')->fetchAll(), 'name'), true), 'Legacy categories did not gain a parent column.');
     check((int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Legacy content was lost.');
     check((new AccessRepository($legacy))->admins()[0]['role_slug'] === 'owner', 'Legacy administrator was not migrated.');
     $legacy->exec('DROP TABLE pages');
     $legacy->exec('DROP TABLE site_settings');
     $legacy->exec('UPDATE cms_schema SET version = 2 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 6 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 2 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 7 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 2 failed.');
     $legacy->exec('DROP TABLE post_field_values');
     $legacy->exec('DROP TABLE category_models');
     $legacy->exec('DROP TABLE model_fields');
     $legacy->exec('DROP TABLE content_models');
     $legacy->exec('UPDATE cms_schema SET version = 5 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 6 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1 && (new ContentModelRepository($legacy))->defaultModel()['slug'] === 'article', 'Upgrade from schema version 5 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 7 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1 && (new ContentModelRepository($legacy))->defaultModel()['slug'] === 'article', 'Upgrade from schema version 5 failed.');
 
     $pages = new PageRepository($pdo);
     $pageId = $pages->save(null, '关于', 'about', '简介', 'draft', 5);
@@ -247,7 +271,7 @@ try {
         check(str_contains($error->getMessage(), '已经安装'), 'Quickstart failed for the wrong reason.');
     }
 
-    echo "FangdaysCMS quickstart, installer, migration, content models, membership, RBAC, and licensing tests passed\n";
+    echo "FangdaysCMS quickstart, installer, migration, category trees, content models, membership, RBAC, and licensing tests passed\n";
 } finally {
     removeTestDirectory($root);
 }

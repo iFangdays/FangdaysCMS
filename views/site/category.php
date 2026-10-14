@@ -1,5 +1,7 @@
-<section class="site-page-heading"><div class="container"><p class="site-kicker">栏目</p><h1><?= \FangdaysCMS\Cms\View::e($category['name']) ?></h1><a href="/">返回首页</a></div></section>
-<div class="container py-5"><div class="row">
+<section class="site-page-heading"><div class="container"><p class="site-kicker"><a href="/">首页</a><?php foreach ($breadcrumb as $crumb): ?> / <a href="/category/<?= \FangdaysCMS\Cms\View::e($crumb['slug']) ?>"><?= \FangdaysCMS\Cms\View::e($crumb['name']) ?></a><?php endforeach; ?></p><h1><?= \FangdaysCMS\Cms\View::e($category['name']) ?></h1></div></section>
+<div class="container py-5">
+  <?php if ($child_categories): ?><section class="mb-4" aria-label="子栏目"><h2 class="h5 mb-3">子栏目</h2><div class="row"><?php foreach ($child_categories as $child): ?><div class="col-md-4 mb-3"><a class="site-category d-block h-100 p-4" href="/category/<?= \FangdaysCMS\Cms\View::e($child['slug']) ?>"><h3 class="h5 mb-0"><?= \FangdaysCMS\Cms\View::e($child['name']) ?> →</h3></a></div><?php endforeach; ?></div></section><?php endif; ?>
+  <section aria-label="栏目文章"><h2 class="h5 mb-3">文章</h2><div class="row">
   <?php foreach ($posts as $post): ?><div class="col-md-6 mb-4"><article class="card h-100 site-card"><?php if ($post['cover_path']): ?><a href="/post/<?= \FangdaysCMS\Cms\View::e($post['slug']) ?>"><img class="site-cover" src="<?= \FangdaysCMS\Cms\View::e($post['cover_path']) ?>" alt="" loading="lazy"></a><?php endif; ?><div class="card-body"><p class="small text-muted"><?= date('Y-m-d', (int) $post['created_at']) ?></p><h2 class="h5"><a href="/post/<?= \FangdaysCMS\Cms\View::e($post['slug']) ?>"><?= \FangdaysCMS\Cms\View::e($post['title']) ?></a></h2><p class="text-muted mb-0"><?= \FangdaysCMS\Cms\View::e(mb_substr($post['body'], 0, 100)) ?></p></div></article></div><?php endforeach; ?>
   <?php if (! $posts): ?><p class="col-12 text-muted">该栏目还没有已发布的文章。</p><?php endif; ?>
-</div><?= \FangdaysCMS\Cms\View::pagination($page, $total_pages, '/category/' . rawurlencode($category['slug'])) ?></div>
+</div></section><?= \FangdaysCMS\Cms\View::pagination($page, $total_pages, '/category/' . rawurlencode($category['slug'])) ?></div>
