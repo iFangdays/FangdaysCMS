@@ -36,7 +36,7 @@
           </td>
         </tr><?php endforeach; ?>
       </tbody></table></div>
-      <?php if ($can['content.manage']): ?><div class="admin-bulk-bar"><span class="muted">对所选文章</span><button type="submit" name="action" value="publish" class="button-secondary">发布</button><button type="submit" name="action" value="draft" class="button-secondary">转为草稿</button><button type="submit" name="action" value="delete" class="button-danger" onclick="return confirm('确定删除所选文章？此操作无法撤销。')">批量删除</button></div><?php endif; ?>
+      <?php if ($can['content.manage']): ?><div class="admin-bulk-bar"><span class="muted">对所选文章</span><button type="submit" name="action" value="publish" class="button-secondary">发布</button><button type="submit" name="action" value="draft" class="button-secondary">转为草稿</button><label class="admin-transfer-target">目标栏目 <select name="target_category_id"><option value="">请选择</option><?php foreach ($categories as $category): ?><?php if ($category['type'] !== 'list') { continue; } ?><option value="<?= (int) $category['id'] ?>"><?= \FangdaysCMS\Cms\View::e(str_repeat('— ', min(12, (int) $category['depth'])) . $category['name']) ?></option><?php endforeach; ?></select></label><button type="submit" name="action" value="copy" class="button-secondary">复制到栏目</button><button type="submit" name="action" value="move" class="button-secondary">移动到栏目</button><button type="submit" name="action" value="delete" class="button-danger" onclick="return confirm('确定删除所选文章？此操作无法撤销。')">批量删除</button></div><?php endif; ?>
     </form>
   <?php endif; ?>
 </section>

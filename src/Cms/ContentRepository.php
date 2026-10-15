@@ -352,17 +352,10 @@ final class ContentRepository
 
     public function bulkPosts(array $ids, string $action): int
     {
-        if (! in_array($action, array('publish', 'draft', 'delete'), true) || count($ids) < 1 || count($ids) > 20) {
+        if (! in_array($action, array('publish', 'draft', 'delete'), true)) {
             throw new InvalidArgumentException('请选择本页文章，并指定有效操作。');
         }
-        $validated = array();
-        foreach ($ids as $id) {
-            if (! is_string($id) || ! ctype_digit($id) || (int) $id < 1) {
-                throw new InvalidArgumentException('所选文章无效。');
-            }
-            $validated[] = (int) $id;
-        }
-        $validated = array_values(array_unique($validated));
+        $validated = self::validatedPostIds($ids);
         $placeholders = implode(', ', array_fill(0, count($validated), '?'));
         if ($action === 'delete') {
             $stmt = $this->pdo->prepare('DELETE FROM posts WHERE id IN (' . $placeholders . ')');
@@ -373,6 +366,84 @@ final class ContentRepository
         $stmt = $this->pdo->prepare('UPDATE posts SET status = ?, updated_at = ? WHERE id IN (' . $placeholders . ')');
         $stmt->execute(array_merge(array($status, time()), $validated));
         return $stmt->rowCount();
+    }
+
+    public function transferPosts(array $ids, string $action, int $categoryId): int
+    {
+        if (! in_array($action, array('copy', 'move'), true)) {
+            throw new InvalidArgumentException('请选择复制或移动操作。');
+        }
+        $validated = self::validatedPostIds($ids);
+        $category = $this->category($categoryId);
+        if ($category === null || $category['type'] !== 'list') {
+            throw new InvalidArgumentException('目标栏目须为列表类型。');
+        }
+        $this->pdo->beginTransaction();
+        try {
+            $sources = array();
+            foreach ($validated as $id) {
+                $sources[] = $this->post($id) ?? throw new InvalidArgumentException('所选文章已不存在，请刷新列表。');
+            }
+            if ($action === 'move') {
+                $stmt = $this->pdo->prepare('UPDATE posts SET category_id = ?, updated_at = ? WHERE id = ?');
+                foreach ($sources as $source) {
+                    $stmt->execute(array($categoryId, time(), $source['id']));
+                }
+            } else {
+                $insert = $this->pdo->prepare('INSERT INTO posts (category_id, title, slug, body, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+                $relations = array(
+                    'post_meta' => array('subtitle', 'author', 'source', 'title_color', 'outlink', 'seo_keywords', 'seo_description', 'is_top', 'is_recommended', 'is_headline', 'body_format'),
+                    'post_visibility' => array('visibility'),
+                    'post_cover' => array('media_id'),
+                    'post_tags' => array('tag_id'),
+                    'post_field_values' => array('field_id', 'value')
+                );
+                foreach ($sources as $source) {
+                    $now = time();
+                    $insert->execute(array($categoryId, $source['title'], $this->copySlug($source['slug']), $source['body'], $source['status'], $now, $now));
+                    $copyId = (int) $this->pdo->lastInsertId();
+                    foreach ($relations as $table => $columns) {
+                        $fields = implode(', ', $columns);
+                        $stmt = $this->pdo->prepare('INSERT INTO ' . $table . ' (post_id, ' . $fields . ') SELECT ?, ' . $fields . ' FROM ' . $table . ' WHERE post_id = ?');
+                        $stmt->execute(array($copyId, $source['id']));
+                    }
+                }
+            }
+            $this->pdo->commit();
+        } catch (\Throwable $error) {
+            $this->pdo->rollBack();
+            throw $error;
+        }
+        return count($validated);
+    }
+
+    private static function validatedPostIds(array $ids): array
+    {
+        if (count($ids) < 1 || count($ids) > 20) {
+            throw new InvalidArgumentException('请选择本页文章，并指定有效操作。');
+        }
+        $validated = array();
+        foreach ($ids as $id) {
+            if (! is_string($id) || ! ctype_digit($id) || (int) $id < 1) {
+                throw new InvalidArgumentException('所选文章无效。');
+            }
+            $validated[] = (int) $id;
+        }
+        return array_values(array_unique($validated));
+    }
+
+    private function copySlug(string $slug): string
+    {
+        $exists = $this->pdo->prepare('SELECT 1 FROM posts WHERE slug = ?');
+        for ($number = 1; $number <= 1000; $number++) {
+            $suffix = $number === 1 ? '-copy' : '-copy-' . $number;
+            $candidate = rtrim(substr($slug, 0, 160 - strlen($suffix)), '-') . $suffix;
+            $exists->execute(array($candidate));
+            if ($exists->fetchColumn() === false) {
+                return $candidate;
+            }
+        }
+        throw new InvalidArgumentException('无法为副本生成唯一 URL 别名。');
     }
 
     public function setVisibility(int $postId, string $visibility): void

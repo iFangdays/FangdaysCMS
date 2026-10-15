@@ -75,6 +75,7 @@ body.admin-body{min-width:320px;background:#f2f2f2;color:#333;font-size:14px;lin
 .admin-body .table-wrap{overflow:auto}.admin-body .admin-table-hint{display:none;color:#888;font-size:12px}
 .admin-title-cell strong{display:block;min-width:150px;font-weight:500}.admin-title-cell small{display:block;font-size:12px;overflow-wrap:anywhere}
 .admin-bulk-bar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:12px}
+.admin-bulk-bar .admin-transfer-target{display:inline-flex;align-items:center;gap:6px;margin:0 0 0 10px;font-size:13px;white-space:nowrap}.admin-transfer-target select{width:min(230px,55vw);min-height:34px}
 .admin-empty{text-align:center;padding:40px 15px;color:#888}.admin-empty strong{color:#555}
 .admin-body .pager a{border-radius:2px;border-color:#e2e2e2}
 .admin-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}

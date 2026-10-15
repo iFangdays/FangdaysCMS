@@ -310,10 +310,22 @@ final class App
                 if (! is_array($rawIds)) {
                     throw new InvalidArgumentException('所选文章无效。');
                 }
-                $affected = $repo->bulkPosts($rawIds, self::postString('action'));
-                $_SESSION['flash'] = '已处理 ' . $affected . ' 篇文章。';
+                $action = self::postString('action');
+                if (in_array($action, array('copy', 'move'), true)) {
+                    $categoryId = filter_var(self::postString('target_category_id'), FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
+                    if ($categoryId === false) {
+                        throw new InvalidArgumentException('请选择目标列表栏目。');
+                    }
+                    $affected = $repo->transferPosts($rawIds, $action, $categoryId);
+                    $_SESSION['flash'] = '已' . ($action === 'copy' ? '复制' : '移动') . ' ' . $affected . ' 篇文章。';
+                } else {
+                    $affected = $repo->bulkPosts($rawIds, $action);
+                    $_SESSION['flash'] = '已处理 ' . $affected . ' 篇文章。';
+                }
             } catch (InvalidArgumentException $error) {
                 $_SESSION['flash'] = '操作失败：' . $error->getMessage();
+            } catch (PDOException $error) {
+                $_SESSION['flash'] = '操作失败：数据库写入未完成，请重试。';
             }
             $this->redirect('/admin/posts');
             return;

@@ -130,6 +130,20 @@ try {
     if ($repo->publishedPostBySlug('mysql-post')['cover_path'] === null) {
         throw new RuntimeException('MySQL post cover failed.');
     }
+    $transferCategory = $repo->saveCategory(null, '转移目标', 'mysql-transfer', 3);
+    $models->bindCategory($transferCategory, $model);
+    if ($repo->transferPosts(array((string) $post), 'copy', $transferCategory) !== 1) {
+        throw new RuntimeException('MySQL article copy failed.');
+    }
+    $copy = $repo->publishedPostBySlug('mysql-post-copy');
+    if ($copy === null || (int) $copy['category_id'] !== $transferCategory || $copy['subtitle'] !== 'MySQL 副标题' || $copy['visibility'] !== 'members' || $copy['cover_path'] === null || $models->valuesForPost((int) $copy['id'])[$field] !== '红色' || $tags->forPost((int) $copy['id'])[0]['slug'] !== 'mysql-tag') {
+        throw new RuntimeException('MySQL article copy lost related data.');
+    }
+    if ($repo->transferPosts(array((string) $post), 'move', $transferCategory) !== 1 || (int) $repo->post($post)['category_id'] !== $transferCategory) {
+        throw new RuntimeException('MySQL article move failed.');
+    }
+    $repo->deletePost((int) $copy['id']);
+    $repo->deleteCategory($transferCategory);
     $pdo->exec('DROP TABLE post_meta');
     $pdo->exec('DROP TABLE category_settings');
     $pdo->exec('ALTER TABLE categories DROP FOREIGN KEY fk_categories_parent, DROP COLUMN parent_id');

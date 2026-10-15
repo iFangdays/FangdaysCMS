@@ -171,6 +171,12 @@ try {
         check(str_contains($error->getMessage(), '未定义'), 'Undefined model option failed for the wrong reason.');
     }
     check($models->valuesForPost($productPost)[$colorField] === '红色', 'Invalid input changed saved fields.');
+    check($repo->transferPosts(array((string) $productPost), 'copy', $productCategory) === 1, 'Model article copy failed.');
+    $firstProductCopy = $repo->post((int) $pdo->query("SELECT id FROM posts WHERE slug = 'test-product-copy'")->fetchColumn());
+    check($firstProductCopy !== null && $models->valuesForPost((int) $firstProductCopy['id'])[$colorField] === '红色', 'Article copy lost model field values.');
+    $repo->transferPosts(array((string) $productPost), 'copy', $productCategory);
+    check((int) $pdo->query("SELECT COUNT(*) FROM posts WHERE slug = 'test-product-copy-2'")->fetchColumn() === 1, 'Repeated article copy did not generate a unique URL alias.');
+    $pdo->exec("DELETE FROM posts WHERE slug IN ('test-product-copy', 'test-product-copy-2')");
     $repo->savePost($productPost, null, '测试产品', 'test-product', '产品正文', 'draft');
     $models->setValuesForPost($productPost, null, array());
     check($models->valuesForPost($productPost)[$colorField] === '红色', 'Switching model erased the previous field value.');
@@ -317,6 +323,19 @@ try {
     $media = new MediaRepository($pdo, $root);
     $media->setCover($postId, $mediaId);
     check($repo->publishedPostBySlug('first-post')['cover_path'] !== null, 'Post cover relation failed.');
+    $transferCategory = $repo->saveCategory(null, '复制目标', 'transfer-target', 4);
+    check($repo->transferPosts(array((string) $postId), 'copy', $transferCategory) === 1, 'Article copy failed.');
+    $copy = $repo->publishedPostBySlug('first-post-copy');
+    check($copy !== null && (int) $copy['category_id'] === $transferCategory && $copy['subtitle'] === '内容副标题' && $copy['visibility'] === 'members' && $copy['cover_path'] !== null && $tags->forPost((int) $copy['id'])[0]['slug'] === 'topic', 'Article copy lost metadata, visibility, tags, or cover.');
+    try {
+        $repo->transferPosts(array((string) $postId, '99999999'), 'move', $transferCategory);
+        throw new RuntimeException('Transfer accepted a missing article.');
+    } catch (InvalidArgumentException $error) {
+        check($repo->post($postId)['category_id'] === null, 'Failed transfer partially moved an article.');
+    }
+    check($repo->transferPosts(array((string) $postId), 'move', $transferCategory) === 1 && (int) $repo->post($postId)['category_id'] === $transferCategory && $repo->post($postId)['slug'] === 'first-post', 'Article move changed content or URL alias.');
+    $repo->deletePost((int) $copy['id']);
+    $repo->deleteCategory($transferCategory);
     try {
         $media->delete($mediaId);
         throw new RuntimeException('Referenced media was deleted.');

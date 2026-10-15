@@ -463,6 +463,31 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         assert status == 422 and "直属文章" in blocked_type
         assert "第一篇文章" in request("/category/news")[1]
 
+        status, transfer_list = request("/admin/posts")
+        assert status == 200 and 'name="target_category_id"' in transfer_list and 'value="copy"' in transfer_list and 'value="move"' in transfer_list
+        status, missing_target = request("/admin/posts/bulk", {
+            "_csrf": csrf(transfer_list), "post_ids[]": ["1"], "action": "copy", "target_category_id": ""
+        })
+        assert status == 200 and "请选择目标列表栏目" in missing_target
+        status, copied_list = request("/admin/posts/bulk", {
+            "_csrf": csrf(transfer_list), "post_ids[]": ["1"], "action": "copy", "target_category_id": child_id
+        })
+        assert status == 200 and "已复制 1 篇文章" in copied_list and "first-post-copy" in copied_list
+        assert "富文本正文" in request("/post/first-post-copy")[1]
+        copy_row = next(row for row in re.findall(r"<tr>(.*?)</tr>", copied_list, re.S) if "first-post-copy" in row)
+        copy_id = re.search(r'name="post_ids\[\]" value="(\d+)"', copy_row).group(1)
+        status, moved_list = request("/admin/posts/bulk", {
+            "_csrf": csrf(copied_list), "post_ids[]": ["1"], "action": "move", "target_category_id": child_id
+        })
+        assert status == 200 and "已移动 1 篇文章" in moved_list
+        assert "第一篇文章" in request("/category/company-news")[1]
+        status, restored_list = request("/admin/posts/bulk", {
+            "_csrf": csrf(moved_list), "post_ids[]": ["1"], "action": "move", "target_category_id": "1"
+        })
+        assert status == 200 and "已移动 1 篇文章" in restored_list
+        status, removed_copy = request(f"/admin/posts/{copy_id}/delete", {"_csrf": csrf(restored_list)})
+        assert status == 200 and "文章已删除" in removed_copy
+
         status, single_form = request("/admin/categories/new")
         status, single_list = request("/admin/categories", {
             "_csrf": csrf(single_form), "name": "公司介绍", "slug": "company-intro",
