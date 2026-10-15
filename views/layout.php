@@ -11,6 +11,12 @@ $adminGroups = array(
         array('/admin/tags', '标签管理', 'taxonomy.manage', 'fa-tags'),
         array('/admin/media', '媒体图片', 'media.manage', 'fa-picture-o')
     ),
+    '内容运营' => array(
+        array('/admin/slides', '轮播图', 'operations.manage', 'fa-image'),
+        array('/admin/links', '友情链接', 'operations.manage', 'fa-link'),
+        array('/admin/company', '公司信息', 'operations.manage', 'fa-building-o'),
+        array('/admin/labels', '自定义标签', 'operations.manage', 'fa-code')
+    ),
     '用户与权限' => array(
         array('/admin/members', '会员管理', 'members.manage', 'fa-users'),
         array('/admin/roles', '角色权限', 'access.manage', 'fa-shield'),
@@ -21,7 +27,7 @@ $adminGroups = array(
         array('/admin/license', '离线授权', 'license.manage', 'fa-key')
     )
 );
-$adminGroupIcons = array('工作台' => 'fa-tachometer', '内容管理' => 'fa-list-alt', '用户与权限' => 'fa-users', '系统设置' => 'fa-cogs');
+$adminGroupIcons = array('工作台' => 'fa-tachometer', '内容管理' => 'fa-list-alt', '内容运营' => 'fa-bullhorn', '用户与权限' => 'fa-users', '系统设置' => 'fa-cogs');
 ?>
 <!doctype html>
 <html lang="zh-CN">

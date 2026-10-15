@@ -8,7 +8,7 @@ use PDO;
 /** Additive schema upgrade from the original FangdaysCMS installation. */
 final class Migrator
 {
-    public const VERSION = 12;
+    public const VERSION = 13;
 
     public static function ensure(PDO $pdo): void
     {
@@ -48,6 +48,7 @@ final class Migrator
                     : 'ALTER TABLE post_meta ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 255');
             }
             $ignore = $mysql ? 'INSERT IGNORE' : 'INSERT OR IGNORE';
+            $existingRoles = $pdo->query('SELECT slug FROM roles')->fetchAll(PDO::FETCH_COLUMN);
             foreach (array('owner' => '站点所有者', 'editor' => '编辑', 'viewer' => '只读') as $slug => $name) {
                 $stmt = $pdo->prepare($ignore . ' INTO roles (slug, name) VALUES (?, ?)');
                 $stmt->execute(array($slug, $name));
@@ -57,9 +58,12 @@ final class Migrator
                 $roleIds[$role['slug']] = (int) $role['id'];
             }
             foreach (array(
-                'editor' => array('dashboard.view', 'content.view', 'content.manage', 'taxonomy.manage', 'media.manage'),
+                'editor' => array('dashboard.view', 'content.view', 'content.manage', 'taxonomy.manage', 'media.manage', 'operations.manage'),
                 'viewer' => array('dashboard.view', 'content.view')
             ) as $role => $permissions) {
+                if (in_array($role, $existingRoles, true)) {
+                    continue;
+                }
                 $stmt = $pdo->prepare($ignore . ' INTO role_permissions (role_id, permission) VALUES (?, ?)');
                 foreach ($permissions as $permission) {
                     $stmt->execute(array($roleIds[$role], $permission));
@@ -68,8 +72,8 @@ final class Migrator
             $pdo->exec($ignore . ' INTO user_roles (user_id, role_id) SELECT id, ' . $roleIds['owner'] . ' FROM users');
             $pdo->exec($ignore . " INTO content_models (slug, name) VALUES ('article', '文章模型')");
             $pdo->exec($mysql
-                ? 'INSERT INTO cms_schema (id, version) VALUES (1, 12) ON DUPLICATE KEY UPDATE version = 12'
-                : 'INSERT INTO cms_schema (id, version) VALUES (1, 12) ON CONFLICT(id) DO UPDATE SET version = 12');
+                ? 'INSERT INTO cms_schema (id, version) VALUES (1, 13) ON DUPLICATE KEY UPDATE version = 13'
+                : 'INSERT INTO cms_schema (id, version) VALUES (1, 13) ON CONFLICT(id) DO UPDATE SET version = 13');
             if (! $mysql) {
                 $pdo->commit();
             }
@@ -118,7 +122,11 @@ final class Migrator
                 'CREATE TABLE IF NOT EXISTS category_models (category_id BIGINT UNSIGNED PRIMARY KEY, model_id BIGINT UNSIGNED NOT NULL, FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE, FOREIGN KEY (model_id) REFERENCES content_models(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4',
                 "CREATE TABLE IF NOT EXISTS category_settings (category_id BIGINT UNSIGNED PRIMARY KEY, type VARCHAR(16) NOT NULL DEFAULT 'list', outlink VARCHAR(2048) NOT NULL DEFAULT '', seo_title VARCHAR(255) NOT NULL DEFAULT '', seo_keywords VARCHAR(255) NOT NULL DEFAULT '', seo_description TEXT NOT NULL, single_title VARCHAR(191) NOT NULL DEFAULT '', single_body LONGTEXT NOT NULL, single_status VARCHAR(16) NOT NULL DEFAULT 'draft', FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
                 "CREATE TABLE IF NOT EXISTS post_meta (post_id BIGINT UNSIGNED PRIMARY KEY, subtitle VARCHAR(255) NOT NULL DEFAULT '', author VARCHAR(100) NOT NULL DEFAULT '', source VARCHAR(100) NOT NULL DEFAULT '', title_color VARCHAR(7) NOT NULL DEFAULT '', outlink VARCHAR(2048) NOT NULL DEFAULT '', seo_keywords VARCHAR(255) NOT NULL DEFAULT '', seo_description TEXT NOT NULL, is_top TINYINT NOT NULL DEFAULT 0, is_recommended TINYINT NOT NULL DEFAULT 0, is_headline TINYINT NOT NULL DEFAULT 0, body_format VARCHAR(16) NOT NULL DEFAULT 'plain', published_at BIGINT NOT NULL DEFAULT 0, sort_order INT NOT NULL DEFAULT 255, FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
-                'CREATE TABLE IF NOT EXISTS post_field_values (post_id BIGINT UNSIGNED NOT NULL, field_id BIGINT UNSIGNED NOT NULL, value TEXT NOT NULL, PRIMARY KEY (post_id, field_id), FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE, FOREIGN KEY (field_id) REFERENCES model_fields(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+                'CREATE TABLE IF NOT EXISTS post_field_values (post_id BIGINT UNSIGNED NOT NULL, field_id BIGINT UNSIGNED NOT NULL, value TEXT NOT NULL, PRIMARY KEY (post_id, field_id), FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE, FOREIGN KEY (field_id) REFERENCES model_fields(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4',
+                "CREATE TABLE IF NOT EXISTS slides (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, group_id INT NOT NULL DEFAULT 1, media_id BIGINT UNSIGNED NOT NULL, title VARCHAR(150) NOT NULL DEFAULT '', subtitle VARCHAR(255) NOT NULL DEFAULT '', link VARCHAR(2048) NOT NULL DEFAULT '', sort_order INT NOT NULL DEFAULT 255, FOREIGN KEY (media_id) REFERENCES media(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+                "CREATE TABLE IF NOT EXISTS friend_links (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, group_id INT NOT NULL DEFAULT 1, name VARCHAR(150) NOT NULL, link VARCHAR(2048) NOT NULL, media_id BIGINT UNSIGNED NULL, sort_order INT NOT NULL DEFAULT 255, FOREIGN KEY (media_id) REFERENCES media(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+                "CREATE TABLE IF NOT EXISTS custom_labels (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, name VARCHAR(64) NOT NULL UNIQUE, description VARCHAR(150) NOT NULL DEFAULT '', value TEXT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+                "CREATE TABLE IF NOT EXISTS company_profile (id TINYINT UNSIGNED PRIMARY KEY, name VARCHAR(150) NOT NULL DEFAULT '', address VARCHAR(255) NOT NULL DEFAULT '', postcode VARCHAR(30) NOT NULL DEFAULT '', contact VARCHAR(100) NOT NULL DEFAULT '', mobile VARCHAR(50) NOT NULL DEFAULT '', phone VARCHAR(50) NOT NULL DEFAULT '', fax VARCHAR(50) NOT NULL DEFAULT '', email VARCHAR(191) NOT NULL DEFAULT '', qq VARCHAR(50) NOT NULL DEFAULT '', weixin VARCHAR(255) NOT NULL DEFAULT '', blicense VARCHAR(255) NOT NULL DEFAULT '', other TEXT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
             );
         }
         return array(
@@ -140,7 +148,11 @@ final class Migrator
             'CREATE TABLE IF NOT EXISTS category_models (category_id INTEGER PRIMARY KEY REFERENCES categories(id) ON DELETE CASCADE, model_id INTEGER NOT NULL REFERENCES content_models(id))',
             "CREATE TABLE IF NOT EXISTS category_settings (category_id INTEGER PRIMARY KEY REFERENCES categories(id) ON DELETE CASCADE, type TEXT NOT NULL DEFAULT 'list', outlink TEXT NOT NULL DEFAULT '', seo_title TEXT NOT NULL DEFAULT '', seo_keywords TEXT NOT NULL DEFAULT '', seo_description TEXT NOT NULL DEFAULT '', single_title TEXT NOT NULL DEFAULT '', single_body TEXT NOT NULL DEFAULT '', single_status TEXT NOT NULL DEFAULT 'draft')",
             "CREATE TABLE IF NOT EXISTS post_meta (post_id INTEGER PRIMARY KEY REFERENCES posts(id) ON DELETE CASCADE, subtitle TEXT NOT NULL DEFAULT '', author TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '', title_color TEXT NOT NULL DEFAULT '', outlink TEXT NOT NULL DEFAULT '', seo_keywords TEXT NOT NULL DEFAULT '', seo_description TEXT NOT NULL DEFAULT '', is_top INTEGER NOT NULL DEFAULT 0, is_recommended INTEGER NOT NULL DEFAULT 0, is_headline INTEGER NOT NULL DEFAULT 0, body_format TEXT NOT NULL DEFAULT 'plain', published_at INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 255)",
-            'CREATE TABLE IF NOT EXISTS post_field_values (post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE, field_id INTEGER NOT NULL REFERENCES model_fields(id) ON DELETE CASCADE, value TEXT NOT NULL, PRIMARY KEY (post_id, field_id))'
+            'CREATE TABLE IF NOT EXISTS post_field_values (post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE, field_id INTEGER NOT NULL REFERENCES model_fields(id) ON DELETE CASCADE, value TEXT NOT NULL, PRIMARY KEY (post_id, field_id))',
+            "CREATE TABLE IF NOT EXISTS slides (id INTEGER PRIMARY KEY AUTOINCREMENT, group_id INTEGER NOT NULL DEFAULT 1, media_id INTEGER NOT NULL REFERENCES media(id), title TEXT NOT NULL DEFAULT '', subtitle TEXT NOT NULL DEFAULT '', link TEXT NOT NULL DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 255)",
+            "CREATE TABLE IF NOT EXISTS friend_links (id INTEGER PRIMARY KEY AUTOINCREMENT, group_id INTEGER NOT NULL DEFAULT 1, name TEXT NOT NULL, link TEXT NOT NULL, media_id INTEGER NULL REFERENCES media(id), sort_order INTEGER NOT NULL DEFAULT 255)",
+            "CREATE TABLE IF NOT EXISTS custom_labels (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, description TEXT NOT NULL DEFAULT '', value TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS company_profile (id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT '', address TEXT NOT NULL DEFAULT '', postcode TEXT NOT NULL DEFAULT '', contact TEXT NOT NULL DEFAULT '', mobile TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '', fax TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '', qq TEXT NOT NULL DEFAULT '', weixin TEXT NOT NULL DEFAULT '', blicense TEXT NOT NULL DEFAULT '', other TEXT NOT NULL DEFAULT '')"
         );
     }
 }

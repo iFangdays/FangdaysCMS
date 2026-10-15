@@ -93,7 +93,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             },
         )
         assert status == 200 and "后台登录" in login, login[:400]
-        assert "schema version 12 is ready" in command(site / "bin/migrate.php")
+        assert "schema version 13 is ready" in command(site / "bin/migrate.php")
         status, unlicensed = request("/")
         assert status == 503 and "尚未获得有效授权" in unlicensed
 
@@ -223,6 +223,67 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         assert status == 200 and "站点简介" in about
         assert request("/assets/theme/bootstrap.min.css")[0] == 200
         assert request("/assets/theme/aoyun.css")[0] == 200
+        status, slide_form = request("/admin/slides/new")
+        assert status == 200 and "轮播图" in slide_form
+        assert request("/assets/splide/splide.min.js")[0] == 200
+        status, slide_list = request("/admin/slides", {
+            "_csrf": csrf(slide_form), "group_id": "1", "media_id": image_id,
+            "title": "运营横幅", "subtitle": "重要消息", "link": "/search", "sort_order": "2"
+        })
+        assert status == 200 and "运营横幅" in slide_list
+        slide_id = re.search(r'/admin/slides/(\d+)/edit', slide_list).group(1)
+        status, slide_home = request("/")
+        assert status == 200 and "运营横幅" in slide_home and "splide.min.js" in slide_home
+        status, slide_edit = request(f"/admin/slides/{slide_id}/edit")
+        status, unsafe_slide = request(f"/admin/slides/{slide_id}/edit", {
+            "_csrf": csrf(slide_edit), "group_id": "1", "media_id": image_id,
+            "title": "恶意横幅", "subtitle": "", "link": "javascript:alert(1)", "sort_order": "2"
+        })
+        assert status == 422 and "链接只支持" in unsafe_slide
+        assert "运营横幅" in request("/")[1] and "恶意横幅" not in request("/")[1]
+        status, moved_slide = request(f"/admin/slides/{slide_id}/edit", {
+            "_csrf": csrf(slide_edit), "group_id": "2", "media_id": image_id,
+            "title": "第二组横幅", "subtitle": "", "link": "", "sort_order": "1"
+        })
+        assert status == 200 and "第二组横幅" in moved_slide
+        assert "splide.min.js" not in request("/")[1]
+        status, link_form = request("/admin/links/new")
+        status, link_list = request("/admin/links", {
+            "_csrf": csrf(link_form), "group_id": "1", "media_id": image_id,
+            "name": "合作网站", "link": "https://example.com/", "sort_order": "3"
+        })
+        assert status == 200 and "合作网站" in link_list
+        link_id = re.search(r'/admin/links/(\d+)/edit', link_list).group(1)
+        assert "合作网站" in request("/")[1]
+        status, company_form = request("/admin/company")
+        status, saved_company = request("/admin/company", {
+            "_csrf": csrf(company_form), "name": "测试企业", "phone": "010-12345678", "email": "info@example.com"
+        })
+        assert status == 200 and "公司信息已保存" in saved_company
+        status, label_form = request("/admin/labels/new")
+        status, label_list = request("/admin/labels", {
+            "_csrf": csrf(label_form), "name": "home_slogan", "description": "首页短句", "value": "<运营标语>"
+        })
+        assert status == 200 and "home_slogan" in label_list
+        label_id = re.search(r'/admin/labels/(\d+)/edit', label_list).group(1)
+        status, settings_form = request("/admin/settings")
+        status, tagged_settings = request("/admin/settings", {
+            "_csrf": csrf(settings_form), "site_name": "新的测试站", "description": "站点简介",
+            "footer_text": "{label:home_slogan} {pboot:companyphone}"
+        })
+        assert status == 200 and "站点设置已保存" in tagged_settings
+        tagged_home = request("/")[1]
+        assert "&lt;运营标语&gt; 010-12345678" in tagged_home and "<运营标语>" not in tagged_home
+        assert "测试企业" in tagged_home and "合作网站" in tagged_home
+        status, media_in_use = request(f"/admin/media/{image_id}/delete", {"_csrf": csrf(slide_form)})
+        assert status == 200 and "使用" in media_in_use
+        status, deleted_slide = request(f"/admin/slides/{slide_id}/delete", {"_csrf": csrf(slide_list)})
+        assert status == 200 and "轮播图已删除" in deleted_slide
+        status, deleted_link = request(f"/admin/links/{link_id}/delete", {"_csrf": csrf(link_list)})
+        assert status == 200 and "友情链接已删除" in deleted_link
+        status, deleted_label = request(f"/admin/labels/{label_id}/delete", {"_csrf": csrf(label_list)})
+        assert status == 200 and "自定义标签已删除" in deleted_label
+        assert "合作网站" not in request("/")[1]
         assert "第一篇文章" in request("/?page=999")[1]
         guest = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         status, guest_home = request("/", client=guest)
@@ -296,6 +357,8 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         assert request("/admin/tags", client=reviewer)[0] == 403
         assert request("/admin/models", client=reviewer)[0] == 403
         assert request("/admin/members", client=reviewer)[0] == 403
+        assert request("/admin/slides", client=reviewer)[0] == 403
+        assert request("/admin/company", client=reviewer)[0] == 403
         assert request("/admin/posts", {"_csrf": csrf(reviewer_dashboard), "title": "非法"}, client=reviewer)[0] == 403
         status, edit_role = request(f"/admin/roles/{role_id}/edit")
         status, changed_role = request(f"/admin/roles/{role_id}/edit", {
@@ -655,7 +718,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         stranger = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         assert request("/post/members-only", client=stranger)[0] == 403
 
-        print("FangdaysCMS HTTP install, admin, post metadata, category types, license, and public-site smoke test passed")
+        print("FangdaysCMS HTTP install, admin, content operations, license, and public-site smoke test passed")
         if os.environ.get("FANGDAYS_PREVIEW") == "1":
             print(f"Preview running at {base}", flush=True)
             input("Press Enter to stop preview: ")

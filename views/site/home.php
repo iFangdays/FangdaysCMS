@@ -1,9 +1,10 @@
+<?php if ($slides): ?><section class="splide site-slides" aria-label="首页轮播图"><div class="splide__track"><ul class="splide__list"><?php foreach ($slides as $slide): ?><li class="splide__slide"><div class="site-slide"><img src="<?= \FangdaysCMS\Cms\View::e($slide['image_path']) ?>" alt="<?= \FangdaysCMS\Cms\View::e($slide['title'] ?: $slide['image_name']) ?>"><div class="site-slide-shade"><div class="container"><div class="site-slide-caption"><?php if ($slide['title'] !== ''): ?><h2><?= \FangdaysCMS\Cms\View::e($slide['title']) ?></h2><?php endif; ?><?php if ($slide['subtitle'] !== ''): ?><p><?= \FangdaysCMS\Cms\View::e($slide['subtitle']) ?></p><?php endif; ?><?php if ($slide['link'] !== ''): ?><a class="btn btn-light" href="<?= \FangdaysCMS\Cms\View::e($slide['link']) ?>">了解更多</a><?php endif; ?></div></div></div></div></li><?php endforeach; ?></ul></div></section><?php else: ?>
 <section class="site-hero text-white"><div class="container py-5">
   <p class="site-kicker text-uppercase">FangdaysCMS · 企业内容管理</p>
   <h1 class="display-4 font-weight-bold"><?= \FangdaysCMS\Cms\View::e($siteName) ?></h1>
-  <p class="lead mb-4">发现最新动态，浏览专题内容。</p>
+  <p class="lead mb-4"><?= \FangdaysCMS\Cms\View::e(($custom_labels['home_slogan'] ?? '') ?: '发现最新动态，浏览专题内容。') ?></p>
   <a class="btn btn-light" href="#latest">浏览最新内容</a>
-</div></section>
+</div></section><?php endif; ?>
 <div class="container py-5">
   <div class="text-center mb-4"><p class="site-kicker text-success mb-1">EXPLORE</p><h2>内容分类</h2></div>
   <div class="row">

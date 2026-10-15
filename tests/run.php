@@ -21,6 +21,8 @@ use FangdaysCMS\Cms\Quickstart;
 use FangdaysCMS\Cms\PageRepository;
 use FangdaysCMS\Cms\SettingsRepository;
 use FangdaysCMS\Cms\MediaRepository;
+use FangdaysCMS\Cms\OperationsRepository;
+use FangdaysCMS\Cms\OperationTags;
 use FangdaysCMS\Cms\View;
 use FangdaysCMS\Cms\RichText;
 use FangdaysCMS\Licensing\LicenseCode;
@@ -249,6 +251,12 @@ try {
     $access->deleteRole($roleId);
     Migrator::ensure($pdo);
     check($access->admins()[0]['role_slug'] === 'owner', 'Idempotent migration altered the owner.');
+    $defaultEditor = (int) $pdo->query("SELECT id FROM roles WHERE slug = 'editor'")->fetchColumn();
+    $revoke = $pdo->prepare("DELETE FROM role_permissions WHERE role_id = ? AND permission = 'operations.manage'");
+    $revoke->execute(array($defaultEditor));
+    $pdo->exec('UPDATE cms_schema SET version = 12 WHERE id = 1');
+    Migrator::ensure($pdo);
+    check(! Permissions::can($pdo, array('role_id' => $defaultEditor, 'role_slug' => 'editor'), 'operations.manage'), 'Schema upgrade changed an existing role grant.');
 
     $now = 1000000;
     $claims = array(
@@ -287,7 +295,7 @@ try {
     $legacy->exec("INSERT INTO users VALUES (7, 'old-admin', 'hash', 1)");
     $legacy->exec("INSERT INTO posts VALUES (9, NULL, '旧文章', 'legacy', '正文', 'published', 1, 1)");
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 12, 'Legacy schema version was not upgraded.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === Migrator::VERSION, 'Legacy schema version was not upgraded.');
     check(in_array('parent_id', array_column($legacy->query('PRAGMA table_info(categories)')->fetchAll(), 'name'), true), 'Legacy categories did not gain a parent column.');
     check((int) $legacy->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'category_settings'")->fetchColumn() === 1, 'Legacy schema did not gain category settings.');
     check((int) $legacy->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'post_meta'")->fetchColumn() === 1, 'Legacy schema did not gain post metadata.');
@@ -297,37 +305,43 @@ try {
     $legacy->exec('DROP TABLE site_settings');
     $legacy->exec('UPDATE cms_schema SET version = 2 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 12 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 2 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === Migrator::VERSION && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 2 failed.');
     $legacy->exec('DROP TABLE post_field_values');
     $legacy->exec('DROP TABLE category_models');
     $legacy->exec('DROP TABLE model_fields');
     $legacy->exec('DROP TABLE content_models');
     $legacy->exec('UPDATE cms_schema SET version = 5 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 12 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1 && (new ContentModelRepository($legacy))->defaultModel()['slug'] === 'article', 'Upgrade from schema version 5 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === Migrator::VERSION && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1 && (new ContentModelRepository($legacy))->defaultModel()['slug'] === 'article', 'Upgrade from schema version 5 failed.');
     $legacy->exec('DROP TABLE category_settings');
     $legacy->exec('UPDATE cms_schema SET version = 7 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 12 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 7 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === Migrator::VERSION && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 7 failed.');
     $legacy->exec('DROP TABLE post_meta');
     $legacy->exec('UPDATE cms_schema SET version = 8 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 12 && (new ContentRepository($legacy))->publishedPostBySlug('legacy')['title'] === '旧文章', 'Upgrade from schema version 8 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === Migrator::VERSION && (new ContentRepository($legacy))->publishedPostBySlug('legacy')['title'] === '旧文章', 'Upgrade from schema version 8 failed.');
     $legacy->exec('ALTER TABLE post_meta DROP COLUMN body_format');
     $legacy->exec('UPDATE cms_schema SET version = 9 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 12 && (new ContentRepository($legacy))->post(9)['body_format'] === 'plain', 'Upgrade from schema version 9 did not preserve plain content.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === Migrator::VERSION && (new ContentRepository($legacy))->post(9)['body_format'] === 'plain', 'Upgrade from schema version 9 did not preserve plain content.');
     $legacy->exec('ALTER TABLE post_meta DROP COLUMN published_at');
     $legacy->exec('ALTER TABLE post_meta DROP COLUMN sort_order');
     $legacy->exec('UPDATE cms_schema SET version = 10 WHERE id = 1');
     Migrator::ensure($legacy);
     $legacyPost = (new ContentRepository($legacy))->post(9);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 12 && (int) $legacyPost['published_at'] === (int) $legacyPost['created_at'] && (int) $legacyPost['sort_order'] === 255, 'Upgrade from schema version 10 did not preserve publication defaults.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === Migrator::VERSION && (int) $legacyPost['published_at'] === (int) $legacyPost['created_at'] && (int) $legacyPost['sort_order'] === 255, 'Upgrade from schema version 10 did not preserve publication defaults.');
     $legacy->exec('DROP TABLE post_gallery');
     $legacy->exec('DROP TABLE post_attachment');
     $legacy->exec('UPDATE cms_schema SET version = 11 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 12 && (int) $legacy->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('post_gallery', 'post_attachment')")->fetchColumn() === 2 && (new ContentRepository($legacy))->post(9)['title'] === '旧文章', 'Upgrade from schema version 11 lost posts or media tables.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === Migrator::VERSION && (int) $legacy->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('post_gallery', 'post_attachment')")->fetchColumn() === 2 && (new ContentRepository($legacy))->post(9)['title'] === '旧文章', 'Upgrade from schema version 11 lost posts or media tables.');
+    foreach (array('slides', 'friend_links', 'custom_labels', 'company_profile') as $table) {
+        $legacy->exec('DROP TABLE ' . $table);
+    }
+    $legacy->exec('UPDATE cms_schema SET version = 12 WHERE id = 1');
+    Migrator::ensure($legacy);
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === Migrator::VERSION && (int) $legacy->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('slides', 'friend_links', 'custom_labels', 'company_profile')")->fetchColumn() === 4 && (new ContentRepository($legacy))->post(9)['title'] === '旧文章', 'Upgrade from schema version 12 lost posts or operation tables.');
 
     $unsafeRich = '<p><strong>加粗内容</strong><img src="/uploads/2026/10/pic.png" onerror="alert(1)"><a href="javascript:alert(1)">危险链接</a><script>alert(1)</script></p>';
     $safeRich = RichText::clean($unsafeRich, 'html');
@@ -345,10 +359,46 @@ try {
     $settings = new SettingsRepository($pdo);
     $settings->save('新站名', '站点简介', '页脚内容');
     check($settings->all('旧站名')['site_name'] === '新站名', 'Site settings were not saved.');
+    $operations = new OperationsRepository($pdo);
+    $operations->saveCompany(array('name' => '测试公司', 'phone' => '010-12345678', 'email' => 'info@example.com'));
+    check($operations->company()['name'] === '测试公司' && $operations->company()['phone'] === '010-12345678', 'Company profile was not saved.');
+    $labelId = $operations->saveLabel(null, array('name' => 'home_slogan', 'description' => '首页介绍', 'value' => '<欢迎访问>'));
+    check(OperationTags::plain('{label:home_slogan} · {pboot:companyname}', $operations->labelValues(), $operations->company()) === '<欢迎访问> · 测试公司', 'Pboot-style operation text tags failed.');
+    check(View::e($operations->labelValues()['home_slogan']) === '&lt;欢迎访问&gt;', 'Custom label was not escaped for HTML output.');
+    $operations->saveLabel($labelId, array('name' => 'home_slogan', 'description' => '首页介绍', 'value' => '新标语'));
+    check($operations->labelValues()['home_slogan'] === '新标语', 'Custom label update failed.');
+    $operations->deleteLabel($labelId);
+    check($operations->label($labelId) === null, 'Custom label deletion failed.');
     $pdo->exec("INSERT INTO media (path, original_name, mime_type, bytes, created_at) VALUES ('/uploads/2026/10/0123456789abcdef0123456789abcdef.png', 'test.png', 'image/png', 100, 1)");
     $mediaId = (int) $pdo->lastInsertId();
     $media = new MediaRepository($pdo, $root);
+    $slideId = $operations->saveSlide(null, array('group_id' => '1', 'media_id' => (string) $mediaId, 'title' => '首页横幅', 'subtitle' => '企业动态', 'link' => '/search', 'sort_order' => '5'));
+    $friendId = $operations->saveLink(null, array('group_id' => '1', 'media_id' => (string) $mediaId, 'name' => '合作站', 'link' => 'https://example.com/', 'sort_order' => '2'));
+    check($operations->slides(1)[0]['title'] === '首页横幅' && $operations->links(1)[0]['name'] === '合作站', 'Operation group listing failed.');
+    check($operations->slides(2) === array() && $operations->links(2) === array(), 'Operation group filtering failed.');
+    $operations->saveSlide($slideId, array('group_id' => '2', 'media_id' => (string) $mediaId, 'title' => '另一个分组', 'subtitle' => '', 'link' => '', 'sort_order' => '1'));
+    check($operations->slides(1) === array() && $operations->slides(2)[0]['title'] === '另一个分组', 'Slide update failed.');
+    try {
+        $operations->saveLink($friendId, array('group_id' => '1', 'media_id' => '', 'name' => '坏链接', 'link' => 'javascript:alert(1)', 'sort_order' => '1'));
+        throw new RuntimeException('Unsafe friend link was accepted.');
+    } catch (InvalidArgumentException $error) {
+        check($operations->friendLink($friendId)['name'] === '合作站', 'Invalid link changed saved data.');
+    }
+    $operations->deleteSlide($slideId);
+    $operations->deleteLink($friendId);
+    check($operations->slide($slideId) === null && $operations->friendLink($friendId) === null, 'Operation deletion failed.');
     $media->setCover($postId, $mediaId);
+    $pdo->exec("INSERT INTO media (path, original_name, mime_type, bytes, created_at) VALUES ('/uploads/2026/10/11111111111111111111111111111111.png', 'operation.png', 'image/png', 100, 1)");
+    $operationMediaId = (int) $pdo->lastInsertId();
+    $protectedSlide = $operations->saveSlide(null, array('group_id' => '1', 'media_id' => (string) $operationMediaId, 'title' => '独立图片', 'subtitle' => '', 'link' => '', 'sort_order' => '1'));
+    try {
+        $media->delete($operationMediaId);
+        throw new RuntimeException('Operation image was deleted while in use.');
+    } catch (InvalidArgumentException $error) {
+        check(str_contains($error->getMessage(), '轮播图'), 'Operation media guard failed.');
+    }
+    $operations->deleteSlide($protectedSlide);
+    $media->delete($operationMediaId);
     $media->setGallery($postId, array((string) $mediaId), array('第一张图'));
     check($media->galleryForPost($postId)[0]['title'] === '第一张图', 'Post gallery title was not saved.');
     try {
@@ -404,7 +454,7 @@ try {
         check(str_contains($error->getMessage(), '已经安装'), 'Quickstart failed for the wrong reason.');
     }
 
-    echo "FangdaysCMS quickstart, installer, migration, category trees, content models, membership, RBAC, and licensing tests passed\n";
+    echo "FangdaysCMS quickstart, migration, content, operations, membership, RBAC, and licensing tests passed\n";
 } finally {
     removeTestDirectory($root);
 }

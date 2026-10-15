@@ -114,6 +114,13 @@ final class MediaRepository
         if ((int) $stmt->fetchColumn() > 0) {
             throw new InvalidArgumentException('图片正被文章多图使用。');
         }
+        foreach (array('slides' => '轮播图', 'friend_links' => '友情链接') as $table => $label) {
+            $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM ' . $table . ' WHERE media_id = ?');
+            $stmt->execute(array($id));
+            if ((int) $stmt->fetchColumn() > 0) {
+                throw new InvalidArgumentException('图片正被' . $label . '使用。');
+            }
+        }
         $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM posts WHERE body LIKE ?');
         $stmt->execute(array('%' . $media['path'] . '%'));
         if ((int) $stmt->fetchColumn() > 0) {

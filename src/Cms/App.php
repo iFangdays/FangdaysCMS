@@ -35,6 +35,7 @@ final class App
         $pdo = Database::connect($config['database']);
         Migrator::ensure($pdo);
         $repo = new ContentRepository($pdo);
+        $operations = new OperationsRepository($pdo);
         $store = new LicenseStore($config['license_file'], $config['license_public_keys'], $config['site_domain']);
         $settings = (new SettingsRepository($pdo))->all($config['site_name']);
         $site = array('site_name' => $settings['site_name'], 'site_description' => $settings['description'], 'footer_text' => $settings['footer_text']);
@@ -73,7 +74,7 @@ final class App
             return;
         }
         $member = Auth::member($pdo);
-        $site += array('member' => $member);
+        $site += array('member' => $member, 'company' => $operations->company(), 'custom_labels' => $operations->labelValues(), 'friend_links' => $operations->links(1, 30));
         if (str_starts_with($path, '/member/')) {
             $this->memberRoute($path, $method, $pdo, $site);
             return;
@@ -145,6 +146,7 @@ final class App
             str_starts_with($path, '/admin/posts') => 'content.manage',
             str_starts_with($path, '/admin/pages') => 'content.manage',
             str_starts_with($path, '/admin/media') => 'media.manage',
+            str_starts_with($path, '/admin/slides'), str_starts_with($path, '/admin/links'), str_starts_with($path, '/admin/labels'), $path === '/admin/company' => 'operations.manage',
             str_starts_with($path, '/admin/members') => 'members.manage',
             $path === '/admin/settings' => 'settings.manage',
             str_starts_with($path, '/admin/roles'), str_starts_with($path, '/admin/admins') => 'access.manage',
@@ -179,6 +181,10 @@ final class App
         }
         if (str_starts_with($path, '/admin/media')) {
             $this->mediaAdminRoute($path, $method, new MediaRepository($pdo, $this->root . '/public'), $base);
+            return;
+        }
+        if (str_starts_with($path, '/admin/slides') || str_starts_with($path, '/admin/links') || str_starts_with($path, '/admin/labels') || $path === '/admin/company') {
+            $this->operationsAdminRoute($path, $method, new OperationsRepository($pdo), new MediaRepository($pdo, $this->root . '/public'), $base);
             return;
         }
         if ($path === '/admin/settings') {
@@ -412,6 +418,157 @@ final class App
         $this->notFound();
     }
 
+    private function operationsAdminRoute(string $path, string $method, OperationsRepository $operations, MediaRepository $media, array $base): void
+    {
+        if ($path === '/admin/company') {
+            $company = $operations->company();
+            $error = null;
+            if ($method === 'POST') {
+                $this->requireCsrf();
+                $company = $_POST;
+                try {
+                    $operations->saveCompany($company);
+                    $_SESSION['flash'] = '公司信息已保存。';
+                    $this->redirect('/admin/company');
+                } catch (InvalidArgumentException $exception) {
+                    $error = $exception->getMessage();
+                }
+            } elseif ($method !== 'GET') {
+                $this->notFound();
+            }
+            View::render('admin/company', $base + array('page_title' => '公司信息', 'company' => $company, 'error' => $error), $error ? 422 : 200);
+            return;
+        }
+        if (str_starts_with($path, '/admin/labels')) {
+            if ($path === '/admin/labels' && $method === 'GET') {
+                View::render('admin/labels', $base + array('page_title' => '自定义标签', 'labels' => $operations->labels()));
+                return;
+            }
+            if ($path === '/admin/labels/new' && $method === 'GET') {
+                View::render('admin/label-form', $base + array('page_title' => '新建自定义标签', 'label' => null, 'error' => null));
+                return;
+            }
+            if ($path === '/admin/labels' && $method === 'POST') {
+                $this->saveOperationLabel($operations, null, $base);
+                return;
+            }
+            if (preg_match('#^/admin/labels/([1-9][0-9]*)/edit$#D', $path, $match)) {
+                $id = (int) $match[1];
+                $label = $operations->label($id);
+                if ($label === null) {
+                    $this->notFound();
+                }
+                if ($method === 'POST') {
+                    $this->saveOperationLabel($operations, $id, $base);
+                } elseif ($method === 'GET') {
+                    View::render('admin/label-form', $base + array('page_title' => '编辑自定义标签', 'label' => $label, 'error' => null));
+                } else {
+                    $this->notFound();
+                }
+                return;
+            }
+            if (preg_match('#^/admin/labels/([1-9][0-9]*)/delete$#D', $path, $match) && $method === 'POST') {
+                $this->requireCsrf();
+                $operations->deleteLabel((int) $match[1]);
+                $_SESSION['flash'] = '自定义标签已删除。';
+                $this->redirect('/admin/labels');
+            }
+            $this->notFound();
+        }
+        $slides = str_starts_with($path, '/admin/slides');
+        $prefix = $slides ? '/admin/slides' : '/admin/links';
+        $title = $slides ? '轮播图' : '友情链接';
+        if ($path === $prefix && $method === 'GET') {
+            View::render('admin/operation-list', $base + array('page_title' => $title, 'kind' => $slides ? 'slide' : 'link', 'items' => $slides ? $operations->slides() : $operations->links()));
+            return;
+        }
+        if ($path === $prefix . '/new' && $method === 'GET') {
+            View::render('admin/operation-form', $base + array('page_title' => '新建' . $title, 'kind' => $slides ? 'slide' : 'link', 'item' => null, 'media' => $media->all(), 'error' => null));
+            return;
+        }
+        if ($path === $prefix && $method === 'POST') {
+            $this->saveOperationItem($operations, $media, $slides, null, $base);
+            return;
+        }
+        if (preg_match('#^' . preg_quote($prefix, '#') . '/([1-9][0-9]*)/edit$#D', $path, $match)) {
+            $id = (int) $match[1];
+            $item = $slides ? $operations->slide($id) : $operations->friendLink($id);
+            if ($item === null) {
+                $this->notFound();
+            }
+            if ($method === 'POST') {
+                $this->saveOperationItem($operations, $media, $slides, $id, $base);
+            } elseif ($method === 'GET') {
+                View::render('admin/operation-form', $base + array('page_title' => '编辑' . $title, 'kind' => $slides ? 'slide' : 'link', 'item' => $item, 'media' => self::operationMediaOptions($media, $item['media_id']), 'error' => null));
+            } else {
+                $this->notFound();
+            }
+            return;
+        }
+        if (preg_match('#^' . preg_quote($prefix, '#') . '/([1-9][0-9]*)/delete$#D', $path, $match) && $method === 'POST') {
+            $this->requireCsrf();
+            if ($slides) {
+                $operations->deleteSlide((int) $match[1]);
+            } else {
+                $operations->deleteLink((int) $match[1]);
+            }
+            $_SESSION['flash'] = $title . '已删除。';
+            $this->redirect($prefix);
+        }
+        $this->notFound();
+    }
+
+    private function saveOperationItem(OperationsRepository $operations, MediaRepository $media, bool $slides, ?int $id, array $base): void
+    {
+        $this->requireCsrf();
+        $input = array('id' => $id, 'group_id' => self::postString('group_id'), 'media_id' => self::postString('media_id'), 'name' => self::postString('name'), 'title' => self::postString('title'), 'subtitle' => self::postString('subtitle'), 'link' => self::postString('link'), 'sort_order' => self::postString('sort_order'));
+        $prefix = $slides ? '/admin/slides' : '/admin/links';
+        $title = $slides ? '轮播图' : '友情链接';
+        try {
+            if ($slides) {
+                $operations->saveSlide($id, $input);
+            } else {
+                $operations->saveLink($id, $input);
+            }
+            $_SESSION['flash'] = $title . '已保存。';
+            $this->redirect($prefix);
+        } catch (InvalidArgumentException $exception) {
+            $error = $exception->getMessage();
+        }
+        View::render('admin/operation-form', $base + array('page_title' => ($id === null ? '新建' : '编辑') . $title, 'kind' => $slides ? 'slide' : 'link', 'item' => $input, 'media' => self::operationMediaOptions($media, $input['media_id']), 'error' => $error), 422);
+    }
+
+    private static function operationMediaOptions(MediaRepository $media, mixed $selected): array
+    {
+        $items = $media->all();
+        if (is_string($selected) || is_int($selected)) {
+            $id = filter_var($selected, FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
+            if ($id !== false && ! in_array($id, array_map('intval', array_column($items, 'id')), true)) {
+                $older = $media->byId($id);
+                if ($older !== null) {
+                    array_unshift($items, $older);
+                }
+            }
+        }
+        return $items;
+    }
+
+    private function saveOperationLabel(OperationsRepository $operations, ?int $id, array $base): void
+    {
+        $this->requireCsrf();
+        $input = array('id' => $id, 'name' => self::postString('name'), 'description' => self::postString('description'), 'value' => self::postString('value'));
+        try {
+            $operations->saveLabel($id, $input);
+            $_SESSION['flash'] = '自定义标签已保存。';
+            $this->redirect('/admin/labels');
+        } catch (InvalidArgumentException $exception) {
+            $error = $exception->getMessage();
+        } catch (PDOException $exception) {
+            $error = '标签标识已存在。';
+        }
+        View::render('admin/label-form', $base + array('page_title' => ($id === null ? '新建' : '编辑') . '自定义标签', 'label' => $input, 'error' => $error), 422);
+    }
+
     private function mediaAdminRoute(string $path, string $method, MediaRepository $media, array $base): void
     {
         if ($path === '/admin/media/editor-upload' && $method === 'POST') {
@@ -498,7 +655,7 @@ final class App
             $members = $base['member'] !== null;
             $totalPages = (int) ceil($repo->countPosts('published', null, $members) / 20);
             $page = self::boundedPage($totalPages);
-            View::render('site/home', $base + array('page_title' => '首页', 'categories' => $repo->rootCategories(), 'tags' => $tags->all(), 'posts' => $repo->posts('published', null, $members, null, null, $page), 'page' => $page, 'total_pages' => $totalPages));
+            View::render('site/home', $base + array('page_title' => '首页', 'slides' => (new OperationsRepository($pdo))->slides(1, 20), 'categories' => $repo->rootCategories(), 'tags' => $tags->all(), 'posts' => $repo->posts('published', null, $members, null, null, $page), 'page' => $page, 'total_pages' => $totalPages));
             return;
         }
         if (preg_match('#^/category/([a-z0-9-]+)$#D', $path, $match)) {
@@ -1176,6 +1333,7 @@ final class App
             'taxonomy.manage' => '/admin/categories',
             'content.manage' => '/admin/posts/new',
             'media.manage' => '/admin/media',
+            'operations.manage' => '/admin/slides',
             'members.manage' => '/admin/members',
             'access.manage' => '/admin/roles',
             'settings.manage' => '/admin/settings',
