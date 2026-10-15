@@ -3,6 +3,8 @@
   <?php if ($post['cover_path']): ?><img class="site-post-cover mb-4" src="<?= \FangdaysCMS\Cms\View::e($post['cover_path']) ?>" alt="<?= \FangdaysCMS\Cms\View::e($post['title']) ?>"><?php endif; ?>
   <?php if ($tags): ?><div class="site-tags mb-4"><?php foreach ($tags as $tag): ?><a href="/tag/<?= \FangdaysCMS\Cms\View::e($tag['slug']) ?>">#<?= \FangdaysCMS\Cms\View::e($tag['name']) ?></a><?php endforeach; ?></div><?php endif; ?>
   <div class="site-article-body"><?= \FangdaysCMS\Cms\RichText::render($post['body'], $post['body_format']) ?></div>
+  <?php if ($gallery): ?><section class="site-post-gallery mt-4" aria-label="文章多图"><h2>图片集</h2><div class="site-post-gallery-grid"><?php foreach ($gallery as $image): ?><figure><img src="<?= \FangdaysCMS\Cms\View::e($image['path']) ?>" alt="<?= \FangdaysCMS\Cms\View::e($image['title'] ?: $image['original_name']) ?>" loading="lazy"><figcaption><?= \FangdaysCMS\Cms\View::e($image['title'] ?: $image['original_name']) ?></figcaption></figure><?php endforeach; ?></div></section><?php endif; ?>
+  <?php if ($attachment): ?><p class="site-post-attachment mt-4"><a href="/post/<?= \FangdaysCMS\Cms\View::e($post['slug']) ?>/attachment">下载附件：<?= \FangdaysCMS\Cms\View::e($attachment['original_name']) ?></a> <small>（<?= (int) $attachment['bytes'] ?> 字节）</small></p><?php endif; ?>
   <?php if ($extra_fields): ?><dl class="site-post-fields mt-4 border-top pt-3"><?php foreach ($extra_fields as $field): ?><div class="row py-2"><dt class="col-sm-3"><?= \FangdaysCMS\Cms\View::e($field['label']) ?></dt><dd class="col-sm-9 mb-0"><?= nl2br(\FangdaysCMS\Cms\View::e($field['value'])) ?></dd></div><?php endforeach; ?></dl><?php endif; ?>
   <p class="mt-5"><a href="/">← 返回首页</a></p>
 </article></div></div>

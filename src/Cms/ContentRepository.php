@@ -410,6 +410,8 @@ final class ContentRepository
                     'post_meta' => array('subtitle', 'author', 'source', 'title_color', 'outlink', 'seo_keywords', 'seo_description', 'is_top', 'is_recommended', 'is_headline', 'body_format', 'published_at', 'sort_order'),
                     'post_visibility' => array('visibility'),
                     'post_cover' => array('media_id'),
+                    'post_gallery' => array('position', 'media_id', 'title'),
+                    'post_attachment' => array('path', 'original_name', 'bytes'),
                     'post_tags' => array('tag_id'),
                     'post_field_values' => array('field_id', 'value')
                 );

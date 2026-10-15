@@ -70,6 +70,34 @@ final class MediaRepository
         }
     }
 
+    public function galleryForPost(int $postId): array
+    {
+        $stmt = $this->pdo->prepare('SELECT g.media_id, g.title, m.path, m.original_name FROM post_gallery g JOIN media m ON m.id = g.media_id WHERE g.post_id = ? ORDER BY g.position');
+        $stmt->execute(array($postId));
+        return $stmt->fetchAll();
+    }
+
+    public function setGallery(int $postId, array $ids, array $titles): void
+    {
+        if (count($ids) > 30 || count($ids) !== count($titles)) {
+            throw new InvalidArgumentException('多图最多 30 张，图片和标题必须一一对应。');
+        }
+        $items = array();
+        foreach ($ids as $position => $id) {
+            if (! is_string($id) || ! ctype_digit($id) || (int) $id < 1 || isset($items[(int) $id]) || ! is_string($titles[$position]) || mb_strlen($titles[$position]) > 150 || $this->byId((int) $id) === null) {
+                throw new InvalidArgumentException('多图包含无效、重复或不存在的图片。');
+            }
+            $items[(int) $id] = trim($titles[$position]);
+        }
+        $stmt = $this->pdo->prepare('DELETE FROM post_gallery WHERE post_id = ?');
+        $stmt->execute(array($postId));
+        $stmt = $this->pdo->prepare('INSERT INTO post_gallery (post_id, position, media_id, title) VALUES (?, ?, ?, ?)');
+        $position = 0;
+        foreach ($items as $id => $title) {
+            $stmt->execute(array($postId, $position++, $id, $title));
+        }
+    }
+
     public function delete(int $id): void
     {
         $media = $this->byId($id);
@@ -80,6 +108,11 @@ final class MediaRepository
         $stmt->execute(array($id));
         if ((int) $stmt->fetchColumn() > 0) {
             throw new InvalidArgumentException('图片正被文章封面使用。');
+        }
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM post_gallery WHERE media_id = ?');
+        $stmt->execute(array($id));
+        if ((int) $stmt->fetchColumn() > 0) {
+            throw new InvalidArgumentException('图片正被文章多图使用。');
         }
         $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM posts WHERE body LIKE ?');
         $stmt->execute(array('%' . $media['path'] . '%'));

@@ -114,6 +114,7 @@ body.admin-body{min-width:320px;background:#f2f2f2;color:#333;font-size:14px;lin
 .admin-media-choice:hover,.admin-media-choice:focus-visible{border-color:#087f75!important;background:#f4faf8!important}
 .admin-media-choice img{display:block;width:100%;height:90px;object-fit:cover}
 .admin-media-choice span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.admin-gallery-rows{display:grid;gap:10px}.admin-gallery-row{display:grid;grid-template-columns:54px minmax(0,1fr);gap:6px;align-items:center;padding:8px;border:1px solid #e2ebeb;border-radius:4px}.admin-gallery-preview{width:54px;height:54px;object-fit:cover;border-radius:3px;background:#edf4f2}.admin-gallery-preview[hidden]{visibility:hidden;display:block}.admin-gallery-row select,.admin-gallery-row input{min-width:0}.admin-gallery-row input{grid-column:1/-1}.admin-gallery-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:3px}.admin-gallery-actions button{width:28px!important;height:32px;padding:0!important;border:1px solid #cedbd6;border-radius:4px;background:#fff;color:#294741;cursor:pointer}.admin-gallery-actions button:hover{background:#e5f4ef}
 @media(max-width:540px){.admin-media-picker{padding:12px}.admin-media-picker-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.admin-editor-tools small{width:100%}}
 
 /* Shared page rhythm and hierarchy, while keeping the PbootCMS/Layui skin. */

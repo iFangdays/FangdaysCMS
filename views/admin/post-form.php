@@ -3,7 +3,7 @@
   <ul class="layui-tab-title"><li><a href="/admin/posts">文章列表</a></li><li class="layui-this"><a href="<?= $post && $post['id'] ? '/admin/posts/' . (int) $post['id'] . '/edit' : '/admin/posts/new' ?>"><?= $post && $post['id'] ? '文章修改' : '文章新增' ?></a></li></ul>
   <div class="layui-tab-content">
 <?php if ($error): ?><div class="error" role="alert"><?= \FangdaysCMS\Cms\View::e($error) ?></div><?php endif; ?>
-<form method="post" action="<?= $post && $post['id'] ? '/admin/posts/' . (int) $post['id'] . '/edit' : '/admin/posts' ?>" class="admin-editor-grid">
+<form method="post" enctype="multipart/form-data" action="<?= $post && $post['id'] ? '/admin/posts/' . (int) $post['id'] . '/edit' : '/admin/posts' ?>" class="admin-editor-grid">
   <?= \FangdaysCMS\Cms\View::csrf() ?>
   <section class="panel stack admin-editor-main" aria-label="文章内容">
     <div class="admin-section-heading"><div><p class="eyebrow">基本内容</p><h2>文章信息</h2></div></div>
@@ -61,8 +61,26 @@
       <label>封面图片<select name="cover_media_id"><option value="">无封面</option><?php foreach ($media as $image): ?><option value="<?= (int) $image['id'] ?>" <?= (string) ($post['cover_media_id'] ?? '') === (string) $image['id'] ? 'selected' : '' ?>><?= \FangdaysCMS\Cms\View::e($image['original_name']) ?> (#<?= (int) $image['id'] ?>)</option><?php endforeach; ?></select></label>
       <small>先到 <a href="/admin/media">媒体图片</a> 上传，再选择封面。</small>
     </section>
+    <section class="panel stack"><div><p class="eyebrow">内容媒体</p><h2>轮播多图</h2></div>
+      <p class="muted">选择媒体库图片，填写每张图片的标题；顺序即前台展示顺序，最多 30 张。</p>
+      <div id="gallery-rows" class="admin-gallery-rows">
+        <?php foreach ($gallery as $item): ?><div class="admin-gallery-row">
+          <img class="admin-gallery-preview" src="<?= \FangdaysCMS\Cms\View::e($item['path']) ?>" alt="" <?= $item['path'] === '' ? 'hidden' : '' ?>><select name="gallery_media_ids[]" aria-label="多图图片"><option value="">选择图片</option><?php foreach ($media as $image): ?><option value="<?= (int) $image['id'] ?>" data-path="<?= \FangdaysCMS\Cms\View::e($image['path']) ?>" <?= (string) $item['media_id'] === (string) $image['id'] ? 'selected' : '' ?>><?= \FangdaysCMS\Cms\View::e($image['original_name']) ?> (#<?= (int) $image['id'] ?>)</option><?php endforeach; ?></select>
+          <input name="gallery_titles[]" aria-label="图片标题" maxlength="150" placeholder="图片标题" value="<?= \FangdaysCMS\Cms\View::e($item['title']) ?>">
+          <div class="admin-gallery-actions"><button type="button" data-gallery-action="up" aria-label="上移">↑</button><button type="button" data-gallery-action="down" aria-label="下移">↓</button><button type="button" data-gallery-action="remove" aria-label="移除">×</button></div>
+        </div><?php endforeach; ?>
+      </div>
+      <button class="layui-btn layui-btn-primary" id="gallery-add" type="button">添加图片</button>
+      <small>先到 <a href="/admin/media">媒体图片</a> 上传图片。</small>
+    </section>
+    <section class="panel stack"><div><p class="eyebrow">内容媒体</p><h2>附件</h2></div>
+      <?php if ($attachment): ?><p>当前附件：<strong><?= \FangdaysCMS\Cms\View::e($attachment['original_name']) ?></strong>（<?= (int) $attachment['bytes'] ?> 字节）</p><label class="check"><input type="checkbox" name="remove_attachment" value="1"> 删除当前附件</label><?php endif; ?>
+      <label>上传或替换附件<input type="file" name="attachment" accept=".pdf,.txt,.zip,.docx,.xlsx,.pptx"></label>
+      <small>支持 PDF、TXT、ZIP 和 Office 文件，最大 20 MB；会员文章的附件仅会员可下载。</small>
+    </section>
   </aside>
 </form>
+<template id="gallery-row-template"><div class="admin-gallery-row"><img class="admin-gallery-preview" alt="" hidden><select name="gallery_media_ids[]" aria-label="多图图片"><option value="">选择图片</option><?php foreach ($media as $image): ?><option value="<?= (int) $image['id'] ?>" data-path="<?= \FangdaysCMS\Cms\View::e($image['path']) ?>"><?= \FangdaysCMS\Cms\View::e($image['original_name']) ?> (#<?= (int) $image['id'] ?>)</option><?php endforeach; ?></select><input name="gallery_titles[]" aria-label="图片标题" maxlength="150" placeholder="图片标题"><div class="admin-gallery-actions"><button type="button" data-gallery-action="up" aria-label="上移">↑</button><button type="button" data-gallery-action="down" aria-label="下移">↓</button><button type="button" data-gallery-action="remove" aria-label="移除">×</button></div></div></template>
 <dialog id="media-picker" class="admin-media-picker" aria-labelledby="media-picker-title">
   <div class="admin-media-picker-head"><h2 id="media-picker-title">选择正文图片</h2><button class="layui-btn layui-btn-primary" type="button" id="close-media-picker" aria-label="关闭">关闭</button></div>
   <?php if ($can['media.manage']): ?><div class="admin-media-upload"><label for="editor-image-upload">上传新图片</label><input id="editor-image-upload" type="file" accept="image/jpeg,image/png,image/webp,image/gif"><span id="editor-upload-status" role="status" aria-live="polite"></span></div><?php endif; ?>
@@ -73,6 +91,31 @@
 </dialog>
   </div>
 </div>
+<script>
+  (() => {
+    const rows = document.getElementById('gallery-rows');
+    const template = document.getElementById('gallery-row-template');
+    document.getElementById('gallery-add').addEventListener('click', () => {
+      if (rows.children.length < 30) rows.append(template.content.cloneNode(true));
+    });
+    rows.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-gallery-action]');
+      if (!button) return;
+      const row = button.closest('.admin-gallery-row');
+      if (button.dataset.galleryAction === 'remove') row.remove();
+      if (button.dataset.galleryAction === 'up' && row.previousElementSibling) rows.insertBefore(row, row.previousElementSibling);
+      if (button.dataset.galleryAction === 'down' && row.nextElementSibling) rows.insertBefore(row.nextElementSibling, row);
+    });
+    rows.addEventListener('change', (event) => {
+      if (!event.target.matches('select[name="gallery_media_ids[]"]')) return;
+      const preview = event.target.closest('.admin-gallery-row').querySelector('.admin-gallery-preview');
+      const path = event.target.selectedOptions[0]?.dataset.path || '';
+      preview.hidden = !path;
+      if (path) preview.src = path;
+      else preview.removeAttribute('src');
+    });
+  })();
+</script>
 <script>
   (() => {
     const category = document.querySelector('select[name="category_id"]');

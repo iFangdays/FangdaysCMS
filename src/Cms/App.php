@@ -339,7 +339,7 @@ final class App
         }
         if ($path === '/admin/posts/new' && $method === 'GET') {
             $models = new ContentModelRepository($pdo);
-            View::render('admin/post-form', $base + array('page_title' => '新建文章', 'post' => null, 'categories' => $repo->categories(), 'tags' => (new TagRepository($pdo))->all(), 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'selected_tags' => array(), 'extra_values' => array(), 'model_form' => self::postModelForm($models, $repo, null), 'error' => null));
+            View::render('admin/post-form', $base + array('page_title' => '新建文章', 'post' => null, 'categories' => $repo->categories(), 'tags' => (new TagRepository($pdo))->all(), 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'gallery' => array(), 'attachment' => null, 'selected_tags' => array(), 'extra_values' => array(), 'model_form' => self::postModelForm($models, $repo, null), 'error' => null));
             return;
         }
         if ($path === '/admin/posts' && $method === 'POST') {
@@ -356,7 +356,7 @@ final class App
                 $this->savePost($pdo, $repo, $id, $base);
             } elseif ($method === 'GET') {
                 $models = new ContentModelRepository($pdo);
-                View::render('admin/post-form', $base + array('page_title' => '编辑文章', 'post' => $post, 'categories' => $repo->categories(), 'tags' => (new TagRepository($pdo))->all(), 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'selected_tags' => array_column((new TagRepository($pdo))->forPost($id), 'id'), 'extra_values' => $models->valuesForPost($id), 'model_form' => self::postModelForm($models, $repo, $post), 'error' => null));
+                View::render('admin/post-form', $base + array('page_title' => '编辑文章', 'post' => $post, 'categories' => $repo->categories(), 'tags' => (new TagRepository($pdo))->all(), 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'gallery' => (new MediaRepository($pdo, $this->root . '/public'))->galleryForPost($id), 'attachment' => (new AttachmentRepository($pdo, $this->root . '/var'))->forPost($id), 'selected_tags' => array_column((new TagRepository($pdo))->forPost($id), 'id'), 'extra_values' => $models->valuesForPost($id), 'model_form' => self::postModelForm($models, $repo, $post), 'error' => null));
             } else {
                 $this->notFound();
             }
@@ -364,7 +364,10 @@ final class App
         }
         if (preg_match('#^/admin/posts/([1-9][0-9]*)/delete$#D', $path, $match) && $method === 'POST') {
             $this->requireCsrf();
+            $attachments = new AttachmentRepository($pdo, $this->root . '/var');
+            $oldAttachment = $attachments->forPost((int) $match[1]);
             $repo->deletePost((int) $match[1]);
+            $attachments->deleteFile($oldAttachment['path'] ?? null);
             $_SESSION['flash'] = '文章已删除。';
             $this->redirect('/admin/posts');
         }
@@ -542,6 +545,23 @@ final class App
             View::render('site/search', $base + array('page_title' => '搜索', 'query' => $query, 'posts' => $query === '' ? array() : $repo->posts('published', null, $members, null, $query, $page), 'page' => $page, 'total_pages' => $totalPages));
             return;
         }
+        if (preg_match('#^/post/([a-z0-9-]+)/attachment$#D', $path, $match)) {
+            $post = $repo->publishedPostBySlug($match[1]);
+            if ($post === null || ($post['visibility'] === 'members' && $base['member'] === null)) {
+                $this->notFound();
+            }
+            $attachments = new AttachmentRepository($pdo, $this->root . '/var');
+            $attachment = $attachments->forPost((int) $post['id']);
+            if ($attachment === null) {
+                $this->notFound();
+            }
+            try {
+                $attachments->send($attachment);
+            } catch (\RuntimeException $error) {
+                $this->notFound();
+            }
+            return;
+        }
         if (preg_match('#^/post/([a-z0-9-]+)$#D', $path, $match)) {
             $post = $repo->publishedPostBySlug($match[1]);
             if ($post === null) {
@@ -551,11 +571,13 @@ final class App
                 View::render('member-required', $base + array('page_title' => '会员内容'), 403);
                 return;
             }
+            $attachments = new AttachmentRepository($pdo, $this->root . '/var');
+            $attachment = $attachments->forPost((int) $post['id']);
             if ($post['outlink'] !== '') {
                 header('Location: ' . $post['outlink'], true, 302);
                 exit;
             }
-            View::render('site/post', $base + array('page_title' => $post['title'], 'seo_keywords' => $post['seo_keywords'], 'seo_description' => $post['seo_description'], 'post' => $post, 'breadcrumb' => $post['category_id'] === null ? array() : $repo->categoryAncestors((int) $post['category_id']), 'tags' => $tags->forPost((int) $post['id']), 'extra_fields' => (new ContentModelRepository($pdo))->publicFieldsForPost((int) $post['id'], $post['category_id'] === null ? null : (int) $post['category_id'])));
+            View::render('site/post', $base + array('page_title' => $post['title'], 'seo_keywords' => $post['seo_keywords'], 'seo_description' => $post['seo_description'], 'post' => $post, 'gallery' => (new MediaRepository($pdo, $this->root . '/public'))->galleryForPost((int) $post['id']), 'attachment' => $attachment, 'breadcrumb' => $post['category_id'] === null ? array() : $repo->categoryAncestors((int) $post['category_id']), 'tags' => $tags->forPost((int) $post['id']), 'extra_fields' => (new ContentModelRepository($pdo))->publicFieldsForPost((int) $post['id'], $post['category_id'] === null ? null : (int) $post['category_id'])));
             return;
         }
         $this->notFound();
@@ -622,7 +644,25 @@ final class App
         }
         $rawTags = $_POST['tag_ids'] ?? array();
         $selectedTags = is_array($rawTags) ? array_values(array_filter($rawTags, 'is_string')) : array();
+        $rawGalleryIds = $_POST['gallery_media_ids'] ?? array();
+        $rawGalleryTitles = $_POST['gallery_titles'] ?? array();
+        $galleryIds = array();
+        $galleryTitles = array();
+        $uploadFile = is_array($_FILES['attachment'] ?? null) ? $_FILES['attachment'] : array();
         try {
+            if (! is_array($rawGalleryIds) || ! is_array($rawGalleryTitles) || count($rawGalleryIds) !== count($rawGalleryTitles) || count($rawGalleryIds) > 30) {
+                throw new InvalidArgumentException('多图数据无效。');
+            }
+            foreach ($rawGalleryIds as $position => $galleryId) {
+                if (! is_string($galleryId) || ! isset($rawGalleryTitles[$position]) || ! is_string($rawGalleryTitles[$position])) {
+                    throw new InvalidArgumentException('多图数据无效。');
+                }
+                if ($galleryId === '' && $rawGalleryTitles[$position] === '') {
+                    continue;
+                }
+                $galleryIds[] = $galleryId;
+                $galleryTitles[] = $rawGalleryTitles[$position];
+            }
             if (! is_array($rawTags) || count($rawTags) > 30 || array_filter($rawTags, fn ($tag) => ! is_string($tag) || ! ctype_digit($tag))) {
                 throw new InvalidArgumentException('文章标签无效。');
             }
@@ -645,7 +685,13 @@ final class App
             $input['body'] = RichText::clean($input['body'], $input['body_format']);
             $tags = new TagRepository($pdo);
             $media = new MediaRepository($pdo, $this->root . '/public');
+            $attachments = new AttachmentRepository($pdo, $this->root . '/var');
+            $hasUpload = $uploadFile !== array() && ($uploadFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
+            if ($hasUpload) {
+                $attachments->validateUpload($uploadFile);
+            }
             $models = new ContentModelRepository($pdo);
+            $oldFile = null;
             $pdo->beginTransaction();
             try {
                 $postId = $repo->savePost($id, $categoryId, $input['title'], $input['slug'], $input['body'], $input['status']);
@@ -653,20 +699,35 @@ final class App
                 $repo->setVisibility($postId, $input['visibility']);
                 $tags->setForPost($postId, $rawTags);
                 $media->setCover($postId, $coverId);
+                $media->setGallery($postId, $galleryIds, $galleryTitles);
                 $models->setValuesForPost($postId, $categoryId, $input['extra']);
+                if ($hasUpload) {
+                    $oldFile = $attachments->replace($postId, $uploadFile);
+                } elseif (self::postString('remove_attachment') === '1') {
+                    $oldFile = $attachments->remove($postId);
+                }
                 $pdo->commit();
             } catch (Throwable $error) {
                 $pdo->rollBack();
                 throw $error;
             }
+            $attachments->deleteFile($oldFile);
             $_SESSION['flash'] = '文章已保存。';
             $this->redirect('/admin/posts');
         } catch (InvalidArgumentException $error) {
             $message = $error->getMessage();
         } catch (PDOException $error) {
             $message = '保存失败，请检查文章别名是否重复。';
+        } catch (\RuntimeException $error) {
+            $message = $error->getMessage();
         }
-        View::render('admin/post-form', $base + array('page_title' => $id === null ? '新建文章' : '编辑文章', 'post' => $input + array('id' => $id), 'categories' => $repo->categories(), 'tags' => (new TagRepository($pdo))->all(), 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'selected_tags' => $selectedTags, 'extra_values' => is_array($input['extra']) ? $input['extra'] : array(), 'model_form' => self::postModelForm(new ContentModelRepository($pdo), $repo, $input), 'error' => $message), 422);
+        $media = new MediaRepository($pdo, $this->root . '/public');
+        $gallery = array();
+        foreach ($galleryIds as $position => $galleryId) {
+            $image = ctype_digit((string) $galleryId) ? $media->byId((int) $galleryId) : null;
+            $gallery[] = array('media_id' => $galleryId, 'title' => $galleryTitles[$position] ?? '', 'path' => $image['path'] ?? '');
+        }
+        View::render('admin/post-form', $base + array('page_title' => $id === null ? '新建文章' : '编辑文章', 'post' => $input + array('id' => $id), 'categories' => $repo->categories(), 'tags' => (new TagRepository($pdo))->all(), 'media' => $media->all(), 'gallery' => $gallery, 'attachment' => $id === null ? null : (new AttachmentRepository($pdo, $this->root . '/var'))->forPost($id), 'selected_tags' => $selectedTags, 'extra_values' => is_array($input['extra']) ? $input['extra'] : array(), 'model_form' => self::postModelForm(new ContentModelRepository($pdo), $repo, $input), 'error' => $message), 422);
     }
 
     private static function postModelForm(ContentModelRepository $models, ContentRepository $repo, ?array $post): array

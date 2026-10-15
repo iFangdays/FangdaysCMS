@@ -93,7 +93,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             },
         )
         assert status == 200 and "后台登录" in login, login[:400]
-        assert "schema version 11 is ready" in command(site / "bin/migrate.php")
+        assert "schema version 12 is ready" in command(site / "bin/migrate.php")
         status, unlicensed = request("/")
         assert status == 503 and "尚未获得有效授权" in unlicensed
 
@@ -438,11 +438,56 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             "_csrf": csrf(rich_form), "title": "第一篇文章", "slug": "first-post", "category_id": "1",
             "body": f'<p><strong>富文本正文</strong><img src="{editor_image["path"]}" onerror="alert(1)"><a href="javascript:alert(1)">链接</a><script>alert(1)</script></p>',
             "body_format": "html", "status": "published", "visibility": "public", "cover_media_id": image_id,
+            "gallery_media_ids[]": [image_id, editor_image["id"]], "gallery_titles[]": ["封面图", "正文图"],
             "seo_description": "",
         })
         assert status == 200 and "文章已保存" in rich_saved
         status, rich_article = request("/post/first-post")
         assert status == 200 and "<strong>富文本正文</strong>" in rich_article and editor_image["path"] in rich_article
+        assert 'aria-label="文章多图"' in rich_article and "封面图" in rich_article and "正文图" in rich_article
+        status, duplicate_gallery = request("/admin/posts/1/edit", {
+            "_csrf": csrf(rich_form), "title": "第一篇文章", "slug": "first-post", "category_id": "1",
+            "body": "正文", "status": "published", "visibility": "public",
+            "gallery_media_ids[]": [image_id, image_id], "gallery_titles[]": ["A", "B"],
+        })
+        assert status == 422 and "多图包含无效、重复" in duplicate_gallery
+        assert "正文图" in request("/post/first-post")[1]
+        attachment_fields = {
+            "_csrf": csrf(rich_form), "title": "第一篇文章", "slug": "first-post", "category_id": "1",
+            "body": f'<p><strong>富文本正文</strong><img src="{editor_image["path"]}"></p>', "body_format": "html", "status": "published", "visibility": "public", "gallery_media_ids[]": image_id,
+            "gallery_titles[]": "图一",
+        }
+        pdf = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n"
+        parts = b"".join((f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n').encode() for key, value in attachment_fields.items())
+        parts += (f'--{boundary}\r\nContent-Disposition: form-data; name="attachment"; filename="guide.pdf"\r\nContent-Type: application/pdf\r\n\r\n').encode() + pdf + f'\r\n--{boundary}--\r\n'.encode()
+        with opener.open(urllib.request.Request(base + "/admin/posts/1/edit", data=parts, headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}), timeout=5) as response:
+            assert "文章已保存" in response.read().decode("utf-8")
+        assert "下载附件：guide.pdf" in request("/post/first-post")[1]
+        with opener.open(base + "/post/first-post/attachment", timeout=5) as response:
+            assert response.read() == pdf and response.headers["X-Content-Type-Options"] == "nosniff"
+        bad_parts = parts.replace(b'filename="guide.pdf"', b'filename="danger.php"').replace(pdf, b'<?php echo 1;')
+        try:
+            opener.open(urllib.request.Request(base + "/admin/posts/1/edit", data=bad_parts, headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}), timeout=5)
+            raise AssertionError("Executable attachment was accepted")
+        except urllib.error.HTTPError as error:
+            assert error.code == 422 and "附件格式无效" in error.read().decode("utf-8")
+        with opener.open(base + "/post/first-post/attachment", timeout=5) as response:
+            assert response.read() == pdf
+        status, restricted = request("/admin/posts/1/edit", {
+            **attachment_fields, "visibility": "members", "cover_media_id": image_id,
+        })
+        assert status == 200 and "文章已保存" in restricted
+        try:
+            urllib.request.urlopen(base + "/post/first-post/attachment", timeout=5)
+            raise AssertionError("Member-only attachment was public")
+        except urllib.error.HTTPError as error:
+            assert error.code == 404
+        status, restored = request("/admin/posts/1/edit", {**attachment_fields, "cover_media_id": image_id})
+        assert status == 200 and "文章已保存" in restored
+        status, removed_attachment = request("/admin/posts/1/edit", {**attachment_fields, "cover_media_id": image_id, "remove_attachment": "1"})
+        assert status == 200 and "文章已保存" in removed_attachment
+        assert "下载附件：guide.pdf" not in request("/post/first-post")[1]
+        assert request("/post/first-post/attachment")[0] == 404
         assert "onerror" not in rich_article and "javascript:alert(1)" not in rich_article and "<script>alert(1)</script>" not in rich_article
         status, rich_home = request("/")
         assert status == 200 and "富文本正文" in rich_home and "&lt;strong&gt;" not in rich_home

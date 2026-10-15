@@ -287,7 +287,7 @@ try {
     $legacy->exec("INSERT INTO users VALUES (7, 'old-admin', 'hash', 1)");
     $legacy->exec("INSERT INTO posts VALUES (9, NULL, '旧文章', 'legacy', '正文', 'published', 1, 1)");
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 11, 'Legacy schema version was not upgraded.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 12, 'Legacy schema version was not upgraded.');
     check(in_array('parent_id', array_column($legacy->query('PRAGMA table_info(categories)')->fetchAll(), 'name'), true), 'Legacy categories did not gain a parent column.');
     check((int) $legacy->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'category_settings'")->fetchColumn() === 1, 'Legacy schema did not gain category settings.');
     check((int) $legacy->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'post_meta'")->fetchColumn() === 1, 'Legacy schema did not gain post metadata.');
@@ -297,32 +297,37 @@ try {
     $legacy->exec('DROP TABLE site_settings');
     $legacy->exec('UPDATE cms_schema SET version = 2 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 11 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 2 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 12 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 2 failed.');
     $legacy->exec('DROP TABLE post_field_values');
     $legacy->exec('DROP TABLE category_models');
     $legacy->exec('DROP TABLE model_fields');
     $legacy->exec('DROP TABLE content_models');
     $legacy->exec('UPDATE cms_schema SET version = 5 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 11 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1 && (new ContentModelRepository($legacy))->defaultModel()['slug'] === 'article', 'Upgrade from schema version 5 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 12 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1 && (new ContentModelRepository($legacy))->defaultModel()['slug'] === 'article', 'Upgrade from schema version 5 failed.');
     $legacy->exec('DROP TABLE category_settings');
     $legacy->exec('UPDATE cms_schema SET version = 7 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 11 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 7 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 12 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 7 failed.');
     $legacy->exec('DROP TABLE post_meta');
     $legacy->exec('UPDATE cms_schema SET version = 8 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 11 && (new ContentRepository($legacy))->publishedPostBySlug('legacy')['title'] === '旧文章', 'Upgrade from schema version 8 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 12 && (new ContentRepository($legacy))->publishedPostBySlug('legacy')['title'] === '旧文章', 'Upgrade from schema version 8 failed.');
     $legacy->exec('ALTER TABLE post_meta DROP COLUMN body_format');
     $legacy->exec('UPDATE cms_schema SET version = 9 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 11 && (new ContentRepository($legacy))->post(9)['body_format'] === 'plain', 'Upgrade from schema version 9 did not preserve plain content.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 12 && (new ContentRepository($legacy))->post(9)['body_format'] === 'plain', 'Upgrade from schema version 9 did not preserve plain content.');
     $legacy->exec('ALTER TABLE post_meta DROP COLUMN published_at');
     $legacy->exec('ALTER TABLE post_meta DROP COLUMN sort_order');
     $legacy->exec('UPDATE cms_schema SET version = 10 WHERE id = 1');
     Migrator::ensure($legacy);
     $legacyPost = (new ContentRepository($legacy))->post(9);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 11 && (int) $legacyPost['published_at'] === (int) $legacyPost['created_at'] && (int) $legacyPost['sort_order'] === 255, 'Upgrade from schema version 10 did not preserve publication defaults.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 12 && (int) $legacyPost['published_at'] === (int) $legacyPost['created_at'] && (int) $legacyPost['sort_order'] === 255, 'Upgrade from schema version 10 did not preserve publication defaults.');
+    $legacy->exec('DROP TABLE post_gallery');
+    $legacy->exec('DROP TABLE post_attachment');
+    $legacy->exec('UPDATE cms_schema SET version = 11 WHERE id = 1');
+    Migrator::ensure($legacy);
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 12 && (int) $legacy->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('post_gallery', 'post_attachment')")->fetchColumn() === 2 && (new ContentRepository($legacy))->post(9)['title'] === '旧文章', 'Upgrade from schema version 11 lost posts or media tables.');
 
     $unsafeRich = '<p><strong>加粗内容</strong><img src="/uploads/2026/10/pic.png" onerror="alert(1)"><a href="javascript:alert(1)">危险链接</a><script>alert(1)</script></p>';
     $safeRich = RichText::clean($unsafeRich, 'html');
@@ -344,11 +349,29 @@ try {
     $mediaId = (int) $pdo->lastInsertId();
     $media = new MediaRepository($pdo, $root);
     $media->setCover($postId, $mediaId);
+    $media->setGallery($postId, array((string) $mediaId), array('第一张图'));
+    check($media->galleryForPost($postId)[0]['title'] === '第一张图', 'Post gallery title was not saved.');
+    try {
+        $media->setGallery($postId, array((string) $mediaId, (string) $mediaId), array('', ''));
+        throw new RuntimeException('Duplicate gallery image was accepted.');
+    } catch (InvalidArgumentException $error) {
+        check(count($media->galleryForPost($postId)) === 1, 'Invalid gallery update changed saved images.');
+    }
+    $pdo->exec("INSERT INTO media (path, original_name, mime_type, bytes, created_at) VALUES ('/uploads/2026/10/abcdef0123456789abcdef0123456789.png', 'second.png', 'image/png', 100, 1)");
+    $secondMediaId = (int) $pdo->lastInsertId();
+    $media->setGallery($postId, array((string) $mediaId, (string) $secondMediaId), array('第一张图', '第二张图'));
+    check(array_column($media->galleryForPost($postId), 'title') === array('第一张图', '第二张图'), 'Gallery order was not retained.');
+    try {
+        $media->delete($secondMediaId);
+        throw new RuntimeException('Gallery image was deleted.');
+    } catch (InvalidArgumentException $error) {
+        check(str_contains($error->getMessage(), '多图'), 'Gallery image deletion failed for the wrong reason.');
+    }
     check($repo->publishedPostBySlug('first-post')['cover_path'] !== null, 'Post cover relation failed.');
     $transferCategory = $repo->saveCategory(null, '复制目标', 'transfer-target', 4);
     check($repo->transferPosts(array((string) $postId), 'copy', $transferCategory) === 1, 'Article copy failed.');
     $copy = $repo->publishedPostBySlug('first-post-copy');
-    check($copy !== null && (int) $copy['category_id'] === $transferCategory && $copy['subtitle'] === '内容副标题' && $copy['visibility'] === 'members' && $copy['cover_path'] !== null && $tags->forPost((int) $copy['id'])[0]['slug'] === 'topic', 'Article copy lost metadata, visibility, tags, or cover.');
+    check($copy !== null && (int) $copy['category_id'] === $transferCategory && $copy['subtitle'] === '内容副标题' && $copy['visibility'] === 'members' && $copy['cover_path'] !== null && $tags->forPost((int) $copy['id'])[0]['slug'] === 'topic' && $media->galleryForPost((int) $copy['id'])[0]['title'] === '第一张图', 'Article copy lost metadata, visibility, tags, cover, or gallery.');
     try {
         $repo->transferPosts(array((string) $postId, '99999999'), 'move', $transferCategory);
         throw new RuntimeException('Transfer accepted a missing article.');
