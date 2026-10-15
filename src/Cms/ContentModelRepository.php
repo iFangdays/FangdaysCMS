@@ -174,8 +174,52 @@ final class ContentModelRepository
     public function setValuesForPost(int $postId, ?int $categoryId, array $input): void
     {
         $model = $this->modelForCategory($categoryId);
+        $values = $this->validatedValues((int) $model['id'], $input);
+        $stmt = $this->pdo->prepare('DELETE FROM post_field_values WHERE post_id = ? AND field_id IN (SELECT id FROM model_fields WHERE model_id = ?)');
+        $stmt->execute(array($postId, (int) $model['id']));
+        $stmt = $this->pdo->prepare('INSERT INTO post_field_values (post_id, field_id, value) VALUES (?, ?, ?)');
+        foreach ($values as $fieldId => $value) {
+            $stmt->execute(array($postId, $fieldId, $value));
+        }
+    }
+
+    public function valuesForSingleCategory(int $categoryId): array
+    {
+        $stmt = $this->pdo->prepare('SELECT field_id, value FROM category_field_values WHERE category_id = ?');
+        $stmt->execute(array($categoryId));
         $values = array();
-        foreach ($this->fields((int) $model['id']) as $field) {
+        foreach ($stmt as $row) {
+            $values[(int) $row['field_id']] = $row['value'];
+        }
+        return $values;
+    }
+
+    public function setValuesForSingleCategory(int $categoryId, array $input): void
+    {
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM category_settings WHERE category_id = ? AND type = 'single'");
+        $stmt->execute(array($categoryId));
+        if (! (int) $stmt->fetchColumn()) {
+            throw new InvalidArgumentException('单页栏目不存在。');
+        }
+        $model = $this->modelForCategory($categoryId);
+        $values = $this->validatedValues((int) $model['id'], $input);
+        $stmt = $this->pdo->prepare('DELETE FROM category_field_values WHERE category_id = ? AND field_id IN (SELECT id FROM model_fields WHERE model_id = ?)');
+        $stmt->execute(array($categoryId, (int) $model['id']));
+        $stmt = $this->pdo->prepare('INSERT INTO category_field_values (category_id, field_id, value) VALUES (?, ?, ?)');
+        foreach ($values as $fieldId => $value) {
+            $stmt->execute(array($categoryId, $fieldId, $value));
+        }
+    }
+
+    public function publicFieldsForSingleCategory(int $categoryId): array
+    {
+        return $this->publicFields($categoryId, $this->valuesForSingleCategory($categoryId));
+    }
+
+    private function validatedValues(int $modelId, array $input): array
+    {
+        $values = array();
+        foreach ($this->fields($modelId) as $field) {
             $id = (int) $field['id'];
             $raw = $input[(string) $id] ?? $input[$id] ?? ($field['field_type'] === 'multi' ? array() : '');
             if ($field['field_type'] === 'multi') {
@@ -206,17 +250,16 @@ final class ContentModelRepository
                 $values[$id] = $value;
             }
         }
-        $stmt = $this->pdo->prepare('DELETE FROM post_field_values WHERE post_id = ? AND field_id IN (SELECT id FROM model_fields WHERE model_id = ?)');
-        $stmt->execute(array($postId, (int) $model['id']));
-        $stmt = $this->pdo->prepare('INSERT INTO post_field_values (post_id, field_id, value) VALUES (?, ?, ?)');
-        foreach ($values as $fieldId => $value) {
-            $stmt->execute(array($postId, $fieldId, $value));
-        }
+        return $values;
     }
 
     public function publicFieldsForPost(int $postId, ?int $categoryId): array
     {
-        $values = $this->valuesForPost($postId);
+        return $this->publicFields($categoryId, $this->valuesForPost($postId));
+    }
+
+    private function publicFields(?int $categoryId, array $values): array
+    {
         $model = $this->modelForCategory($categoryId);
         $result = array();
         foreach ($this->fields((int) $model['id']) as $field) {

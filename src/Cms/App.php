@@ -249,21 +249,35 @@ final class App
             if ($category === null || $category['type'] !== 'single') {
                 $this->notFound();
             }
+            $models = new ContentModelRepository($pdo);
+            $model = $models->modelForCategory($id);
+            $fields = $models->fields((int) $model['id']);
+            $extraValues = $models->valuesForSingleCategory($id);
             if ($method === 'POST') {
                 $this->requireCsrf();
                 $category['single_title'] = self::postString('title');
                 $category['single_body'] = self::postString('body');
                 $category['single_body_format'] = self::postString('body_format') ?: $category['single_body_format'];
                 $category['single_status'] = self::postString('status');
+                $extraValues = $_POST['extra'] ?? array();
                 try {
+                    if (! is_array($extraValues)) {
+                        throw new InvalidArgumentException('扩展字段内容无效。');
+                    }
+                    $pdo->beginTransaction();
                     $repo->saveSingle($id, $category['single_title'], $category['single_body'], $category['single_status'], $category['single_body_format']);
+                    $models->setValuesForSingleCategory($id, $extraValues);
+                    $pdo->commit();
                     $_SESSION['flash'] = '单页栏目内容已保存。';
                     $this->redirect('/admin/categories/' . $id . '/single');
                 } catch (InvalidArgumentException $error) {
-                    View::render('admin/category-single', $base + array('page_title' => '编辑单页栏目', 'category' => $category, 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'error' => $error->getMessage()), 422);
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
+                    View::render('admin/category-single', $base + array('page_title' => '编辑单页栏目', 'category' => $category, 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'model' => $model, 'fields' => $fields, 'extra_values' => is_array($extraValues) ? $extraValues : array(), 'error' => $error->getMessage()), 422);
                 }
             } elseif ($method === 'GET') {
-                View::render('admin/category-single', $base + array('page_title' => '编辑单页栏目', 'category' => $category, 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'error' => null));
+                View::render('admin/category-single', $base + array('page_title' => '编辑单页栏目', 'category' => $category, 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'model' => $model, 'fields' => $fields, 'extra_values' => $extraValues, 'error' => null));
             } else {
                 $this->notFound();
             }
@@ -672,7 +686,7 @@ final class App
                 if ($category['single_status'] !== 'published') {
                     $this->notFound();
                 }
-                View::render('site/category-single', $base + array('page_title' => $category['name'], 'seo_title' => $category['seo_title'], 'seo_keywords' => $category['seo_keywords'], 'seo_description' => $category['seo_description'], 'category' => $category, 'breadcrumb' => $repo->categoryAncestors((int) $category['id'])));
+                View::render('site/category-single', $base + array('page_title' => $category['name'], 'seo_title' => $category['seo_title'], 'seo_keywords' => $category['seo_keywords'], 'seo_description' => $category['seo_description'], 'category' => $category, 'breadcrumb' => $repo->categoryAncestors((int) $category['id']), 'extra_fields' => (new ContentModelRepository($pdo))->publicFieldsForSingleCategory((int) $category['id'])));
                 return;
             }
             $members = $base['member'] !== null;

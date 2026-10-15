@@ -168,6 +168,19 @@ try {
     $models->setValuesForPost($productPost, $productCategory, array($colorField => '红色', $sizeField => array('S', 'M')));
     check($models->valuesForPost($productPost)[$sizeField] === 'S,M', 'Multiple choice values were not saved.');
     check($models->publicFieldsForPost($productPost, $productCategory)[0]['value'] === '红色', 'Model field was not exposed to the public post.');
+    $productSingle = $repo->saveCategory(null, '产品介绍', 'product-about', 3);
+    $repo->saveCategorySettings($productSingle, 'single', '', '', '', '');
+    $models->bindCategory($productSingle, $productModel);
+    $models->setValuesForSingleCategory($productSingle, array($colorField => '蓝色', $sizeField => array('S', 'M')));
+    check($models->valuesForSingleCategory($productSingle)[$sizeField] === 'S,M' && $models->publicFieldsForSingleCategory($productSingle)[0]['value'] === '蓝色', 'Single category model fields were not saved or exposed.');
+    try {
+        $models->setValuesForSingleCategory($productSingle, array($colorField => '绿色'));
+        throw new RuntimeException('Undefined single category model option was accepted.');
+    } catch (InvalidArgumentException $error) {
+        check($models->valuesForSingleCategory($productSingle)[$colorField] === '蓝色', 'Invalid single category field changed saved data.');
+    }
+    $repo->deleteCategory($productSingle);
+    check($models->valuesForSingleCategory($productSingle) === array(), 'Single category field values did not cascade on deletion.');
     check($repo->countPosts('draft', null, true, null, '红色') === 1, 'Current model field was not searchable.');
     try {
         $models->setValuesForPost($productPost, $productCategory, array($colorField => '绿色'));
@@ -356,6 +369,10 @@ try {
     $legacy->exec('UPDATE cms_schema SET version = 13 WHERE id = 1');
     Migrator::ensure($legacy);
     check($legacyPages->byId($legacyPageId)['body'] === '<旧正文>' && $legacyPages->byId($legacyPageId)['body_format'] === 'plain' && $legacyCategories->category($legacyCategoryId)['single_body'] === '<旧栏目正文>' && $legacyCategories->category($legacyCategoryId)['single_body_format'] === 'plain', 'Upgrade from schema version 13 lost single-page content or its plain format.');
+    $legacy->exec('DROP TABLE category_field_values');
+    $legacy->exec('UPDATE cms_schema SET version = 14 WHERE id = 1');
+    Migrator::ensure($legacy);
+    check((int) $legacy->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'category_field_values'")->fetchColumn() === 1 && $legacyCategories->category($legacyCategoryId)['single_body'] === '<旧栏目正文>', 'Upgrade from schema version 14 lost single-page content or field table.');
 
     $unsafeRich = '<p><strong>加粗内容</strong><img src="/uploads/2026/10/pic.png" onerror="alert(1)"><a href="javascript:alert(1)">危险链接</a><script>alert(1)</script></p>';
     $safeRich = RichText::clean($unsafeRich, 'html');

@@ -92,6 +92,11 @@ try {
     $singleCategory = $repo->saveCategory(null, '关于', 'mysql-company', 1);
     $repo->saveCategorySettings($singleCategory, 'single', '', '关于 SEO', '企业', '描述');
     $repo->saveSingle($singleCategory, '关于我们', '单页正文', 'published');
+    $models->bindCategory($singleCategory, $model);
+    $models->setValuesForSingleCategory($singleCategory, array($field => '蓝色'));
+    if ($models->publicFieldsForSingleCategory($singleCategory)[0]['value'] !== '蓝色') {
+        throw new RuntimeException('MySQL single category model field failed.');
+    }
     if ($repo->categoryBySlug('mysql-company')['single_body'] !== '单页正文') {
         throw new RuntimeException('MySQL single category failed.');
     }
@@ -229,6 +234,12 @@ try {
     if ($pages->byId($pageId)['body_format'] !== 'html' || str_contains($pages->byId($pageId)['body'], '<script') || $repo->category($singleCategoryId)['single_body_format'] !== 'html' || str_contains($repo->category($singleCategoryId)['single_body'], '<script')) {
         throw new RuntimeException('MySQL rich single-page content was not sanitized.');
     }
+    $pdo->exec('DROP TABLE category_field_values');
+    $pdo->exec('UPDATE cms_schema SET version = 14 WHERE id = 1');
+    \FangdaysCMS\Cms\Migrator::ensure($pdo);
+    if ((int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'category_field_values'")->fetchColumn() !== 1 || $repo->category($singleCategoryId)['single_body_format'] !== 'html') {
+        throw new RuntimeException('MySQL upgrade from schema version 14 lost single-page content or field table.');
+    }
     echo "FangdaysCMS MySQL schema, content operations, membership, and roles passed\n";
 } finally {
     $pdo->exec('DROP TABLE IF EXISTS slides');
@@ -236,6 +247,7 @@ try {
     $pdo->exec('DROP TABLE IF EXISTS custom_labels');
     $pdo->exec('DROP TABLE IF EXISTS company_profile');
     $pdo->exec('DROP TABLE IF EXISTS post_field_values');
+    $pdo->exec('DROP TABLE IF EXISTS category_field_values');
     $pdo->exec('DROP TABLE IF EXISTS post_meta');
     $pdo->exec('DROP TABLE IF EXISTS category_models');
     $pdo->exec('DROP TABLE IF EXISTS category_settings');

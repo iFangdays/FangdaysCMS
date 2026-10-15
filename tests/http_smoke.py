@@ -93,7 +93,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             },
         )
         assert status == 200 and "后台登录" in login, login[:400]
-        assert "schema version 14 is ready" in command(site / "bin/migrate.php")
+        assert "schema version 15 is ready" in command(site / "bin/migrate.php")
         status, unlicensed = request("/")
         assert status == 503 and "尚未获得有效授权" in unlicensed
 
@@ -485,6 +485,35 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         status, invalid_field = request("/admin/posts/1/edit", update | {f"extra[{field_id}]": "绿色"})
         assert status == 422 and "未定义的选项" in invalid_field
         assert "红色" in request("/post/first-post")[1]
+        status, single_model_form = request("/admin/categories/new")
+        status, single_model_list = request("/admin/categories", {
+            "_csrf": csrf(single_model_form), "name": "产品单页", "slug": "product-single",
+            "sort_order": "4", "model_id": model_id, "type": "single",
+        })
+        assert status == 200 and "产品单页" in single_model_list
+        single_model_id = re.search(r'产品单页.*?/admin/categories/(\d+)/edit', single_model_list, re.S).group(1)
+        status, single_model_edit = request(f"/admin/categories/{single_model_id}/single")
+        assert status == 200 and f'name="extra[{field_id}]"' in single_model_edit
+        status, saved_model_single = request(f"/admin/categories/{single_model_id}/single", {
+            "_csrf": csrf(single_model_edit), "title": "产品说明", "body": "原正文",
+            "status": "published", f"extra[{field_id}]": "蓝色",
+        })
+        assert status == 200 and "单页栏目内容已保存" in saved_model_single
+        assert "蓝色" in request("/category/product-single")[1]
+        status, invalid_model_single = request(f"/admin/categories/{single_model_id}/single", {
+            "_csrf": csrf(saved_model_single), "title": "错误标题", "body": "错误正文",
+            "status": "published", f"extra[{field_id}]": "绿色",
+        })
+        assert status == 422 and "未定义的选项" in invalid_model_single
+        status, malformed_model_single = request(f"/admin/categories/{single_model_id}/single", {
+            "_csrf": csrf(saved_model_single), "title": "错误标题", "body": "错误正文",
+            "status": "published", f"extra[{field_id}][]": "蓝色",
+        })
+        assert status == 422 and "内容无效" in malformed_model_single
+        public_model_single = request("/category/product-single")[1]
+        assert "原正文" in public_model_single and "蓝色" in public_model_single and "错误正文" not in public_model_single
+        status, deleted_model_single = request(f"/admin/categories/{single_model_id}/delete", {"_csrf": csrf(saved_model_single)})
+        assert status == 200 and request("/category/product-single")[0] == 404
         status, field_edit = request(f"/admin/models/{model_id}/fields/{field_id}/edit")
         assert status == 200 and "颜色" in field_edit
         status, renamed_field = request(f"/admin/models/{model_id}/fields/{field_id}/edit", {
