@@ -20,6 +20,7 @@ use FangdaysCMS\Cms\PageRepository;
 use FangdaysCMS\Cms\SettingsRepository;
 use FangdaysCMS\Cms\MediaRepository;
 use FangdaysCMS\Cms\OperationsRepository;
+use FangdaysCMS\Cms\OperationTags;
 
 $name = getenv('FANGDAYS_MYSQL_NAME') ?: '';
 if (! preg_match('/^[a-zA-Z0-9_]+_test$/D', $name)) {
@@ -144,10 +145,15 @@ try {
     $labelId = $operations->saveLabel(null, array('name' => 'home_slogan', 'description' => '标语', 'value' => '欢迎'));
     $slideId = $operations->saveSlide(null, array('group_id' => '1', 'media_id' => (string) $mediaId, 'title' => 'MySQL 横幅', 'subtitle' => '', 'link' => '/search', 'sort_order' => '1'));
     $linkId = $operations->saveLink(null, array('group_id' => '1', 'media_id' => (string) $mediaId, 'name' => 'MySQL 友链', 'link' => 'https://example.com/', 'sort_order' => '1'));
+    $slideAfter = $operations->saveSlide(null, array('group_id' => '1', 'media_id' => (string) $mediaId, 'title' => '第二张', 'subtitle' => '', 'link' => '', 'sort_order' => '2'));
     if ($operations->company()['name'] !== 'MySQL 企业' || $operations->labelValues()['home_slogan'] !== '欢迎' || $operations->slides(1)[0]['title'] !== 'MySQL 横幅' || $operations->links(1)[0]['name'] !== 'MySQL 友链') {
         throw new RuntimeException('MySQL content operations failed.');
     }
+    if ($operations->slides(1, 1, 2)[0]['title'] !== '第二张' || OperationTags::html('{pboot:slide gid=1 num=1 start=2}[slide:title]{/pboot:slide}', $operations) !== '第二张') {
+        throw new RuntimeException('MySQL operation tag pagination failed.');
+    }
     $operations->deleteSlide($slideId);
+    $operations->deleteSlide($slideAfter);
     $operations->deleteLink($linkId);
     $operations->deleteLabel($labelId);
     if ($repo->publishedPostBySlug('mysql-post')['cover_path'] === null) {

@@ -1,0 +1,9 @@
+<section class="splide site-slides" aria-label="首页轮播图"><div class="splide__track"><ul class="splide__list">
+{pboot:slide gid=1 num=20}
+<li class="splide__slide"><div class="site-slide"><img src="[slide:src]" alt="[slide:title]"><div class="site-slide-shade"><div class="container"><div class="site-slide-caption">
+{pboot:if([slide:title])}<h2>[slide:title]</h2>{/pboot:if}
+{pboot:if([slide:subtitle])}<p>[slide:subtitle]</p>{/pboot:if}
+{pboot:if([slide:link])}<a class="btn btn-light" href="[slide:link]">了解更多</a>{/pboot:if}
+</div></div></div></div></li>
+{/pboot:slide}
+</ul></div></section>

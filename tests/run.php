@@ -374,8 +374,20 @@ try {
     $media = new MediaRepository($pdo, $root);
     $slideId = $operations->saveSlide(null, array('group_id' => '1', 'media_id' => (string) $mediaId, 'title' => '首页横幅', 'subtitle' => '企业动态', 'link' => '/search', 'sort_order' => '5'));
     $friendId = $operations->saveLink(null, array('group_id' => '1', 'media_id' => (string) $mediaId, 'name' => '合作站', 'link' => 'https://example.com/', 'sort_order' => '2'));
+    $secondSlide = $operations->saveSlide(null, array('group_id' => '1', 'media_id' => (string) $mediaId, 'title' => '<下一张>', 'subtitle' => '', 'link' => '', 'sort_order' => '9'));
+    $secondLink = $operations->saveLink(null, array('group_id' => '1', 'media_id' => '', 'name' => '友链 <二>', 'link' => 'https://example.org/', 'sort_order' => '9'));
     check($operations->slides(1)[0]['title'] === '首页横幅' && $operations->links(1)[0]['name'] === '合作站', 'Operation group listing failed.');
     check($operations->slides(2) === array() && $operations->links(2) === array(), 'Operation group filtering failed.');
+    check($operations->slides(1, 1, 2)[0]['title'] === '<下一张>' && $operations->links(1, 1, 2)[0]['name'] === '友链 <二>', 'Operation start/limit pagination failed.');
+    $slideTemplate = '{pboot:slide gid=1 num=1 start=2}<b>[slide:i]:[slide:title]</b>{pboot:if([slide:link])}<a href="[slide:link]">查看</a>{/pboot:if}{/pboot:slide}';
+    check(OperationTags::html($slideTemplate, $operations) === '<b>1:&lt;下一张&gt;</b>', 'Slide loop, start, escaping or empty-link condition failed.');
+    $linkTemplate = '{pboot:link gid=1 num=1 start=2}<a href="[link:link]">{pboot:if([link:logo])}<img src="[link:logo]">{/pboot:if}[link:name]</a>{/pboot:link}';
+    check(OperationTags::html($linkTemplate, $operations) === '<a href="https://example.org/">友链 &lt;二&gt;</a>', 'Friend link loop or empty-logo condition failed.');
+    check(OperationTags::html('{pboot:slide num=1}[slide:title]{/pboot:slide}', $operations) === '', 'Loop without gid should not expose template tags.');
+    check(OperationTags::html('{pboot:slide gid=1 num=1}<span>{label:unsafe}</span>[slide:title]{/pboot:slide}', $operations, array('unsafe' => '<script>{/pboot:slide}</script>')) === '<span>&lt;script&gt;{/pboot:slide}&lt;/script&gt;</span>首页横幅', 'Stored label text changed tag parsing or escaped HTML.');
+    check(str_contains(View::pbootFragment('home-slides', $operations), '<h2>首页横幅</h2>') && str_contains(View::pbootFragment('footer-links', $operations), '友链 &lt;二&gt;'), 'Default Pboot fragments did not render operation data.');
+    $operations->deleteSlide($secondSlide);
+    $operations->deleteLink($secondLink);
     $operations->saveSlide($slideId, array('group_id' => '2', 'media_id' => (string) $mediaId, 'title' => '另一个分组', 'subtitle' => '', 'link' => '', 'sort_order' => '1'));
     check($operations->slides(1) === array() && $operations->slides(2)[0]['title'] === '另一个分组', 'Slide update failed.');
     try {

@@ -14,12 +14,13 @@ final class OperationsRepository
     {
     }
 
-    public function slides(?int $groupId = null, int $limit = 200): array
+    public function slides(?int $groupId = null, int $limit = 200, int $start = 1): array
     {
-        $stmt = $this->pdo->prepare('SELECT s.id, s.group_id, s.media_id, s.title, s.subtitle, s.link, s.sort_order, m.path AS image_path, m.original_name AS image_name FROM slides s JOIN media m ON m.id = s.media_id WHERE (? IS NULL OR s.group_id = ?) ORDER BY s.sort_order, s.id LIMIT ?');
+        $stmt = $this->pdo->prepare('SELECT s.id, s.group_id, s.media_id, s.title, s.subtitle, s.link, s.sort_order, m.path AS image_path, m.original_name AS image_name FROM slides s JOIN media m ON m.id = s.media_id WHERE (? IS NULL OR s.group_id = ?) ORDER BY s.sort_order, s.id LIMIT ? OFFSET ?');
         $stmt->bindValue(1, $groupId, $groupId === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
         $stmt->bindValue(2, $groupId, $groupId === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
         $stmt->bindValue(3, max(1, min($limit, 200)), PDO::PARAM_INT);
+        $stmt->bindValue(4, max(0, $start - 1), PDO::PARAM_INT);
         $stmt->execute();
         return $stmt->fetchAll();
     }
@@ -59,12 +60,13 @@ final class OperationsRepository
         $stmt->execute(array($id));
     }
 
-    public function links(?int $groupId = null, int $limit = 200): array
+    public function links(?int $groupId = null, int $limit = 200, int $start = 1): array
     {
-        $stmt = $this->pdo->prepare('SELECT l.id, l.group_id, l.name, l.link, l.media_id, l.sort_order, m.path AS logo_path FROM friend_links l LEFT JOIN media m ON m.id = l.media_id WHERE (? IS NULL OR l.group_id = ?) ORDER BY l.sort_order, l.id LIMIT ?');
+        $stmt = $this->pdo->prepare('SELECT l.id, l.group_id, l.name, l.link, l.media_id, l.sort_order, m.path AS logo_path FROM friend_links l LEFT JOIN media m ON m.id = l.media_id WHERE (? IS NULL OR l.group_id = ?) ORDER BY l.sort_order, l.id LIMIT ? OFFSET ?');
         $stmt->bindValue(1, $groupId, $groupId === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
         $stmt->bindValue(2, $groupId, $groupId === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
         $stmt->bindValue(3, max(1, min($limit, 200)), PDO::PARAM_INT);
+        $stmt->bindValue(4, max(0, $start - 1), PDO::PARAM_INT);
         $stmt->execute();
         return $stmt->fetchAll();
     }

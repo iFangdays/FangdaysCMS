@@ -74,7 +74,7 @@ final class App
             return;
         }
         $member = Auth::member($pdo);
-        $site += array('member' => $member, 'company' => $operations->company(), 'custom_labels' => $operations->labelValues(), 'friend_links' => $operations->links(1, 30));
+        $site += array('member' => $member, 'company' => $operations->company(), 'custom_labels' => $operations->labelValues(), 'operations' => $operations, 'friend_links' => $operations->links(1, 30));
         if (str_starts_with($path, '/member/')) {
             $this->memberRoute($path, $method, $pdo, $site);
             return;

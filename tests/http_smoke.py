@@ -233,7 +233,8 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         assert status == 200 and "运营横幅" in slide_list
         slide_id = re.search(r'/admin/slides/(\d+)/edit', slide_list).group(1)
         status, slide_home = request("/")
-        assert status == 200 and "运营横幅" in slide_home and "splide.min.js" in slide_home
+        assert status == 200 and '<h2>运营横幅</h2>' in slide_home and 'href="/search">了解更多</a>' in slide_home and "splide.min.js" in slide_home
+        assert "[slide:title]" not in slide_home and "{pboot:slide" not in slide_home
         status, slide_edit = request(f"/admin/slides/{slide_id}/edit")
         status, unsafe_slide = request(f"/admin/slides/{slide_id}/edit", {
             "_csrf": csrf(slide_edit), "group_id": "1", "media_id": image_id,
@@ -254,7 +255,9 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         })
         assert status == 200 and "合作网站" in link_list
         link_id = re.search(r'/admin/links/(\d+)/edit', link_list).group(1)
-        assert "合作网站" in request("/")[1]
+        linked_home = request("/")[1]
+        assert 'href="https://example.com/" target="_blank" rel="noopener noreferrer"' in linked_home and "合作网站" in linked_home
+        assert "[link:name]" not in linked_home and "{pboot:link" not in linked_home
         status, company_form = request("/admin/company")
         status, saved_company = request("/admin/company", {
             "_csrf": csrf(company_form), "name": "测试企业", "phone": "010-12345678", "email": "info@example.com"

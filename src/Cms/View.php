@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace FangdaysCMS\Cms;
 
+use RuntimeException;
+
 final class View
 {
     public static function render(string $template, array $data = array(), int $status = 200): void
@@ -28,6 +30,18 @@ final class View
     public static function e($value): string
     {
         return htmlspecialchars(is_scalar($value) ? (string) $value : '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+
+    public static function pbootFragment(string $name, OperationsRepository $operations, array $labels = array(), array $company = array()): string
+    {
+        if (! preg_match('/^[a-z][a-z0-9-]*$/D', $name)) {
+            throw new RuntimeException('模板片段名称无效。');
+        }
+        $source = file_get_contents(dirname(__DIR__, 2) . '/templates/default/' . $name . '.html');
+        if ($source === false) {
+            throw new RuntimeException('模板片段无法读取。');
+        }
+        return OperationTags::html($source, $operations, $labels, $company);
     }
 
     public static function csrf(): string
