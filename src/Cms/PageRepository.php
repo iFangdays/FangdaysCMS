@@ -14,7 +14,7 @@ final class PageRepository
 
     public function all(): array
     {
-        return $this->pdo->query('SELECT id, title, slug, body, status, menu_order, created_at, updated_at FROM pages ORDER BY menu_order ASC, id ASC')->fetchAll();
+        return $this->pdo->query('SELECT id, title, slug, body, body_format, status, menu_order, created_at, updated_at FROM pages ORDER BY menu_order ASC, id ASC')->fetchAll();
     }
 
     public function published(): array
@@ -24,33 +24,34 @@ final class PageRepository
 
     public function byId(int $id): ?array
     {
-        $stmt = $this->pdo->prepare('SELECT id, title, slug, body, status, menu_order, created_at, updated_at FROM pages WHERE id = ?');
+        $stmt = $this->pdo->prepare('SELECT id, title, slug, body, body_format, status, menu_order, created_at, updated_at FROM pages WHERE id = ?');
         $stmt->execute(array($id));
         return $stmt->fetch() ?: null;
     }
 
     public function publishedBySlug(string $slug): ?array
     {
-        $stmt = $this->pdo->prepare("SELECT id, title, slug, body, status, menu_order, created_at, updated_at FROM pages WHERE slug = ? AND status = 'published'");
+        $stmt = $this->pdo->prepare("SELECT id, title, slug, body, body_format, status, menu_order, created_at, updated_at FROM pages WHERE slug = ? AND status = 'published'");
         $stmt->execute(array($slug));
         return $stmt->fetch() ?: null;
     }
 
-    public function save(?int $id, string $title, string $slug, string $body, string $status, int $menuOrder): int
+    public function save(?int $id, string $title, string $slug, string $body, string $status, int $menuOrder, string $bodyFormat = 'plain'): int
     {
         $title = trim($title);
         $slug = trim($slug);
         if ($title === '' || mb_strlen($title) > 100 || ! preg_match('/^[a-z0-9]+(?:-[a-z0-9]+)*$/D', $slug) || strlen($slug) > 160 || strlen($body) > 2000000 || ! in_array($status, array('draft', 'published'), true) || $menuOrder < 0 || $menuOrder > 1000000) {
             throw new InvalidArgumentException('单页标题、别名、正文、状态或排序无效。');
         }
+        $body = RichText::clean($body, $bodyFormat);
         $now = time();
         if ($id === null) {
-            $stmt = $this->pdo->prepare('INSERT INTO pages (title, slug, body, status, menu_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
-            $stmt->execute(array($title, $slug, $body, $status, $menuOrder, $now, $now));
+            $stmt = $this->pdo->prepare('INSERT INTO pages (title, slug, body, body_format, status, menu_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+            $stmt->execute(array($title, $slug, $body, $bodyFormat, $status, $menuOrder, $now, $now));
             return (int) $this->pdo->lastInsertId();
         }
-        $stmt = $this->pdo->prepare('UPDATE pages SET title = ?, slug = ?, body = ?, status = ?, menu_order = ?, updated_at = ? WHERE id = ?');
-        $stmt->execute(array($title, $slug, $body, $status, $menuOrder, $now, $id));
+        $stmt = $this->pdo->prepare('UPDATE pages SET title = ?, slug = ?, body = ?, body_format = ?, status = ?, menu_order = ?, updated_at = ? WHERE id = ?');
+        $stmt->execute(array($title, $slug, $body, $bodyFormat, $status, $menuOrder, $now, $id));
         return $id;
     }
 

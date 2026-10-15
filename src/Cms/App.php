@@ -176,7 +176,7 @@ final class App
             return;
         }
         if (str_starts_with($path, '/admin/pages')) {
-            $this->pageAdminRoute($path, $method, new PageRepository($pdo), $base);
+            $this->pageAdminRoute($path, $method, new PageRepository($pdo), new MediaRepository($pdo, $this->root . '/public'), $base);
             return;
         }
         if (str_starts_with($path, '/admin/media')) {
@@ -253,16 +253,17 @@ final class App
                 $this->requireCsrf();
                 $category['single_title'] = self::postString('title');
                 $category['single_body'] = self::postString('body');
+                $category['single_body_format'] = self::postString('body_format') ?: $category['single_body_format'];
                 $category['single_status'] = self::postString('status');
                 try {
-                    $repo->saveSingle($id, $category['single_title'], $category['single_body'], $category['single_status']);
+                    $repo->saveSingle($id, $category['single_title'], $category['single_body'], $category['single_status'], $category['single_body_format']);
                     $_SESSION['flash'] = '单页栏目内容已保存。';
                     $this->redirect('/admin/categories/' . $id . '/single');
                 } catch (InvalidArgumentException $error) {
-                    View::render('admin/category-single', $base + array('page_title' => '编辑单页栏目', 'category' => $category, 'error' => $error->getMessage()), 422);
+                    View::render('admin/category-single', $base + array('page_title' => '编辑单页栏目', 'category' => $category, 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'error' => $error->getMessage()), 422);
                 }
             } elseif ($method === 'GET') {
-                View::render('admin/category-single', $base + array('page_title' => '编辑单页栏目', 'category' => $category, 'error' => null));
+                View::render('admin/category-single', $base + array('page_title' => '编辑单页栏目', 'category' => $category, 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'error' => null));
             } else {
                 $this->notFound();
             }
@@ -380,18 +381,18 @@ final class App
         $this->notFound();
     }
 
-    private function pageAdminRoute(string $path, string $method, PageRepository $pages, array $base): void
+    private function pageAdminRoute(string $path, string $method, PageRepository $pages, MediaRepository $media, array $base): void
     {
         if ($path === '/admin/pages' && $method === 'GET') {
             View::render('admin/pages', $base + array('page_title' => '单页管理', 'pages' => $pages->all()));
             return;
         }
         if ($path === '/admin/pages/new' && $method === 'GET') {
-            View::render('admin/page-form', $base + array('page_title' => '新建单页', 'page' => null, 'error' => null));
+            View::render('admin/page-form', $base + array('page_title' => '新建单页', 'page' => null, 'media' => $media->all(), 'error' => null));
             return;
         }
         if ($path === '/admin/pages' && $method === 'POST') {
-            $this->savePage($pages, null, $base);
+            $this->savePage($pages, $media, null, $base);
             return;
         }
         if (preg_match('#^/admin/pages/([1-9][0-9]*)/edit$#D', $path, $match)) {
@@ -401,9 +402,9 @@ final class App
                 $this->notFound();
             }
             if ($method === 'POST') {
-                $this->savePage($pages, $id, $base);
+                $this->savePage($pages, $media, $id, $base);
             } elseif ($method === 'GET') {
-                View::render('admin/page-form', $base + array('page_title' => '编辑单页', 'page' => $page, 'error' => null));
+                View::render('admin/page-form', $base + array('page_title' => '编辑单页', 'page' => $page, 'media' => $media->all(), 'error' => null));
             } else {
                 $this->notFound();
             }
@@ -615,16 +616,16 @@ final class App
         $this->notFound();
     }
 
-    private function savePage(PageRepository $pages, ?int $id, array $base): void
+    private function savePage(PageRepository $pages, MediaRepository $media, ?int $id, array $base): void
     {
         $this->requireCsrf();
-        $input = array('id' => $id, 'title' => self::postString('title'), 'slug' => self::postString('slug'), 'body' => self::postString('body'), 'status' => self::postString('status'), 'menu_order' => self::postString('menu_order'));
+        $input = array('id' => $id, 'title' => self::postString('title'), 'slug' => self::postString('slug'), 'body' => self::postString('body'), 'body_format' => self::postString('body_format') ?: ($id === null ? 'plain' : ($pages->byId($id)['body_format'] ?? 'plain')), 'status' => self::postString('status'), 'menu_order' => self::postString('menu_order'));
         try {
             $order = filter_var($input['menu_order'], FILTER_VALIDATE_INT);
             if ($order === false) {
                 throw new InvalidArgumentException('单页排序必须是整数。');
             }
-            $pages->save($id, $input['title'], $input['slug'], $input['body'], $input['status'], $order);
+            $pages->save($id, $input['title'], $input['slug'], $input['body'], $input['status'], $order, $input['body_format']);
             $_SESSION['flash'] = '单页已保存。';
             $this->redirect('/admin/pages');
         } catch (InvalidArgumentException $error) {
@@ -632,7 +633,7 @@ final class App
         } catch (PDOException $error) {
             $message = '保存失败，请检查单页别名是否重复。';
         }
-        View::render('admin/page-form', $base + array('page_title' => $id === null ? '新建单页' : '编辑单页', 'page' => $input, 'error' => $message), 422);
+        View::render('admin/page-form', $base + array('page_title' => $id === null ? '新建单页' : '编辑单页', 'page' => $input, 'media' => $media->all(), 'error' => $message), 422);
     }
 
     private function siteRoute(string $path, string $method, PDO $pdo, ContentRepository $repo, TagRepository $tags, PageRepository $pages, array $base): void

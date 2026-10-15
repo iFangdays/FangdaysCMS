@@ -126,6 +126,9 @@ try {
     check(count($repo->rootCategories()) === 0, 'Draft single category appeared in navigation.');
     $repo->saveSingle($singleCategory, '公司介绍', '<script>bad()</script>', 'published');
     check($repo->categoryBySlug('company')['single_body'] === '<script>bad()</script>' && count($repo->rootCategories()) === 1, 'Published single category failed.');
+    check($repo->categoryBySlug('company')['single_body_format'] === 'plain' && str_contains(RichText::render($repo->categoryBySlug('company')['single_body'], 'plain'), '&lt;script&gt;'), 'Legacy single category body was not treated as plain text.');
+    $repo->saveSingle($singleCategory, '公司介绍', '<p><strong>富文本栏目</strong><script>bad()</script></p>', 'published', 'html');
+    check($repo->categoryBySlug('company')['single_body_format'] === 'html' && str_contains($repo->categoryBySlug('company')['single_body'], '<strong>富文本栏目</strong>') && ! str_contains($repo->categoryBySlug('company')['single_body'], '<script'), 'Single category rich text was not sanitized or saved.');
     check(View::categoryLink($repo->category($singleCategory)) === '/category/company', 'Single category link failed.');
     try {
         $repo->savePost(null, $singleCategory, '错误文章', 'invalid-single-post', '正文', 'published');
@@ -342,6 +345,17 @@ try {
     $legacy->exec('UPDATE cms_schema SET version = 12 WHERE id = 1');
     Migrator::ensure($legacy);
     check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === Migrator::VERSION && (int) $legacy->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('slides', 'friend_links', 'custom_labels', 'company_profile')")->fetchColumn() === 4 && (new ContentRepository($legacy))->post(9)['title'] === '旧文章', 'Upgrade from schema version 12 lost posts or operation tables.');
+    $legacyPages = new PageRepository($legacy);
+    $legacyPageId = $legacyPages->save(null, '旧单页', 'legacy-page', '<旧正文>', 'published', 1);
+    $legacyCategories = new ContentRepository($legacy);
+    $legacyCategoryId = $legacyCategories->saveCategory(null, '旧单页栏目', 'legacy-single', 1);
+    $legacyCategories->saveCategorySettings($legacyCategoryId, 'single', '', '', '', '');
+    $legacyCategories->saveSingle($legacyCategoryId, '旧标题', '<旧栏目正文>', 'published');
+    $legacy->exec('ALTER TABLE pages DROP COLUMN body_format');
+    $legacy->exec('ALTER TABLE category_settings DROP COLUMN single_body_format');
+    $legacy->exec('UPDATE cms_schema SET version = 13 WHERE id = 1');
+    Migrator::ensure($legacy);
+    check($legacyPages->byId($legacyPageId)['body'] === '<旧正文>' && $legacyPages->byId($legacyPageId)['body_format'] === 'plain' && $legacyCategories->category($legacyCategoryId)['single_body'] === '<旧栏目正文>' && $legacyCategories->category($legacyCategoryId)['single_body_format'] === 'plain', 'Upgrade from schema version 13 lost single-page content or its plain format.');
 
     $unsafeRich = '<p><strong>加粗内容</strong><img src="/uploads/2026/10/pic.png" onerror="alert(1)"><a href="javascript:alert(1)">危险链接</a><script>alert(1)</script></p>';
     $safeRich = RichText::clean($unsafeRich, 'html');
@@ -354,6 +368,8 @@ try {
     check($pages->publishedBySlug('about') === null, 'Draft page became public.');
     $pages->save($pageId, '关于', 'about', '简介', 'published', 5);
     check($pages->publishedBySlug('about')['body'] === '简介' && count($pages->published()) === 1, 'Published page lookup failed.');
+    $pages->save($pageId, '关于', 'about', '<p><strong>富文本单页</strong><script>bad()</script></p>', 'published', 5, 'html');
+    check($pages->publishedBySlug('about')['body_format'] === 'html' && str_contains($pages->publishedBySlug('about')['body'], '<strong>富文本单页</strong>') && ! str_contains($pages->publishedBySlug('about')['body'], '<script'), 'Independent page rich text was not sanitized or saved.');
     $pages->delete($pageId);
     check($pages->byId($pageId) === null, 'Page deletion failed.');
     $settings = new SettingsRepository($pdo);
@@ -372,6 +388,25 @@ try {
     $pdo->exec("INSERT INTO media (path, original_name, mime_type, bytes, created_at) VALUES ('/uploads/2026/10/0123456789abcdef0123456789abcdef.png', 'test.png', 'image/png', 100, 1)");
     $mediaId = (int) $pdo->lastInsertId();
     $media = new MediaRepository($pdo, $root);
+    $usedPath = '/uploads/2026/10/0123456789abcdef0123456789abcdef.png';
+    $mediaPageId = $pages->save(null, '图片单页', 'media-page', '<p><img src="' . $usedPath . '"></p>', 'published', 1, 'html');
+    try {
+        $media->delete($mediaId);
+        throw new RuntimeException('A page body image was deleted.');
+    } catch (InvalidArgumentException $error) {
+        check(str_contains($error->getMessage(), '独立单页正文'), 'Page image reference was not protected.');
+    }
+    $pages->delete($mediaPageId);
+    $mediaCategoryId = $repo->saveCategory(null, '图片栏目', 'media-single', 1);
+    $repo->saveCategorySettings($mediaCategoryId, 'single', '', '', '', '');
+    $repo->saveSingle($mediaCategoryId, '图片栏目', '<p><img src="' . $usedPath . '"></p>', 'published', 'html');
+    try {
+        $media->delete($mediaId);
+        throw new RuntimeException('A category single body image was deleted.');
+    } catch (InvalidArgumentException $error) {
+        check(str_contains($error->getMessage(), '栏目单页正文'), 'Category single image reference was not protected.');
+    }
+    $repo->deleteCategory($mediaCategoryId);
     $slideId = $operations->saveSlide(null, array('group_id' => '1', 'media_id' => (string) $mediaId, 'title' => '首页横幅', 'subtitle' => '企业动态', 'link' => '/search', 'sort_order' => '5'));
     $friendId = $operations->saveLink(null, array('group_id' => '1', 'media_id' => (string) $mediaId, 'name' => '合作站', 'link' => 'https://example.com/', 'sort_order' => '2'));
     $secondSlide = $operations->saveSlide(null, array('group_id' => '1', 'media_id' => (string) $mediaId, 'title' => '<下一张>', 'subtitle' => '', 'link' => '', 'sort_order' => '9'));

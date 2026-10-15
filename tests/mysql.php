@@ -214,6 +214,21 @@ try {
     if ((int) $pdo->query('SELECT version FROM cms_schema WHERE id = 1')->fetchColumn() !== \FangdaysCMS\Cms\Migrator::VERSION || (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN ('slides', 'friend_links', 'custom_labels', 'company_profile')")->fetchColumn() !== 4 || $repo->post($post) === null) {
         throw new RuntimeException('MySQL upgrade from schema version 12 lost article content or operation tables.');
     }
+    $singleCategoryId = $repo->saveCategory(null, '旧栏目单页', 'mysql-single', 1);
+    $repo->saveCategorySettings($singleCategoryId, 'single', '', '', '', '');
+    $repo->saveSingle($singleCategoryId, '旧栏目单页', '<旧正文>', 'published');
+    $pdo->exec('ALTER TABLE pages DROP COLUMN body_format');
+    $pdo->exec('ALTER TABLE category_settings DROP COLUMN single_body_format');
+    $pdo->exec('UPDATE cms_schema SET version = 13 WHERE id = 1');
+    \FangdaysCMS\Cms\Migrator::ensure($pdo);
+    if ($pages->byId($pageId)['body_format'] !== 'plain' || $repo->category($singleCategoryId)['single_body_format'] !== 'plain' || $repo->category($singleCategoryId)['single_body'] !== '<旧正文>') {
+        throw new RuntimeException('MySQL upgrade from schema version 13 lost single-page text.');
+    }
+    $pages->save($pageId, 'MySQL 单页', 'mysql-about', '<p><strong>富文本</strong><script>bad()</script></p>', 'published', 1, 'html');
+    $repo->saveSingle($singleCategoryId, '旧栏目单页', '<p><strong>栏目富文本</strong><script>bad()</script></p>', 'published', 'html');
+    if ($pages->byId($pageId)['body_format'] !== 'html' || str_contains($pages->byId($pageId)['body'], '<script') || $repo->category($singleCategoryId)['single_body_format'] !== 'html' || str_contains($repo->category($singleCategoryId)['single_body'], '<script')) {
+        throw new RuntimeException('MySQL rich single-page content was not sanitized.');
+    }
     echo "FangdaysCMS MySQL schema, content operations, membership, and roles passed\n";
 } finally {
     $pdo->exec('DROP TABLE IF EXISTS slides');

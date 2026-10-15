@@ -126,6 +126,13 @@ final class MediaRepository
         if ((int) $stmt->fetchColumn() > 0) {
             throw new InvalidArgumentException('图片正被文章正文使用。');
         }
+        foreach (array('pages' => array('body', '独立单页正文'), 'category_settings' => array('single_body', '栏目单页正文')) as $table => $reference) {
+            $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM ' . $table . ' WHERE ' . $reference[0] . ' LIKE ?');
+            $stmt->execute(array('%' . $media['path'] . '%'));
+            if ((int) $stmt->fetchColumn() > 0) {
+                throw new InvalidArgumentException('图片正被' . $reference[1] . '使用。');
+            }
+        }
         $stmt = $this->pdo->prepare('DELETE FROM media WHERE id = ?');
         $stmt->execute(array($id));
         $path = $this->publicRoot . $media['path'];

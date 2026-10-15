@@ -92,14 +92,14 @@ final class ContentRepository
 
     public function category(int $id): ?array
     {
-        $stmt = $this->pdo->prepare("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, COALESCE(s.type, 'list') AS type, COALESCE(s.outlink, '') AS outlink, COALESCE(s.seo_title, '') AS seo_title, COALESCE(s.seo_keywords, '') AS seo_keywords, COALESCE(s.seo_description, '') AS seo_description, COALESCE(s.single_title, '') AS single_title, COALESCE(s.single_body, '') AS single_body, COALESCE(s.single_status, 'draft') AS single_status FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id WHERE c.id = ?");
+        $stmt = $this->pdo->prepare("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, COALESCE(s.type, 'list') AS type, COALESCE(s.outlink, '') AS outlink, COALESCE(s.seo_title, '') AS seo_title, COALESCE(s.seo_keywords, '') AS seo_keywords, COALESCE(s.seo_description, '') AS seo_description, COALESCE(s.single_title, '') AS single_title, COALESCE(s.single_body, '') AS single_body, COALESCE(s.single_body_format, 'plain') AS single_body_format, COALESCE(s.single_status, 'draft') AS single_status FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id WHERE c.id = ?");
         $stmt->execute(array($id));
         return $stmt->fetch() ?: null;
     }
 
     public function categoryBySlug(string $slug): ?array
     {
-        $stmt = $this->pdo->prepare("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, COALESCE(s.type, 'list') AS type, COALESCE(s.outlink, '') AS outlink, COALESCE(s.seo_title, '') AS seo_title, COALESCE(s.seo_keywords, '') AS seo_keywords, COALESCE(s.seo_description, '') AS seo_description, COALESCE(s.single_title, '') AS single_title, COALESCE(s.single_body, '') AS single_body, COALESCE(s.single_status, 'draft') AS single_status FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id WHERE c.slug = ?");
+        $stmt = $this->pdo->prepare("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, COALESCE(s.type, 'list') AS type, COALESCE(s.outlink, '') AS outlink, COALESCE(s.seo_title, '') AS seo_title, COALESCE(s.seo_keywords, '') AS seo_keywords, COALESCE(s.seo_description, '') AS seo_description, COALESCE(s.single_title, '') AS single_title, COALESCE(s.single_body, '') AS single_body, COALESCE(s.single_body_format, 'plain') AS single_body_format, COALESCE(s.single_status, 'draft') AS single_status FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id WHERE c.slug = ?");
         $stmt->execute(array($slug));
         return $stmt->fetch() ?: null;
     }
@@ -143,7 +143,7 @@ final class ContentRepository
         }
     }
 
-    public function saveSingle(int $categoryId, string $title, string $body, string $status): void
+    public function saveSingle(int $categoryId, string $title, string $body, string $status, string $bodyFormat = 'plain'): void
     {
         $category = $this->category($categoryId);
         if ($category === null || $category['type'] !== 'single') {
@@ -153,8 +153,9 @@ final class ContentRepository
         if ($title === '' || mb_strlen($title) > 100 || strlen($body) > 2000000 || ! in_array($status, array('draft', 'published'), true)) {
             throw new InvalidArgumentException('单页标题、正文或状态无效。');
         }
-        $stmt = $this->pdo->prepare('UPDATE category_settings SET single_title = ?, single_body = ?, single_status = ? WHERE category_id = ?');
-        $stmt->execute(array($title, $body, $status, $categoryId));
+        $body = RichText::clean($body, $bodyFormat);
+        $stmt = $this->pdo->prepare('UPDATE category_settings SET single_title = ?, single_body = ?, single_body_format = ?, single_status = ? WHERE category_id = ?');
+        $stmt->execute(array($title, $body, $bodyFormat, $status, $categoryId));
     }
 
     private static function isPublicCategory(array $category): bool

@@ -93,7 +93,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             },
         )
         assert status == 200 and "后台登录" in login, login[:400]
-        assert "schema version 13 is ready" in command(site / "bin/migrate.php")
+        assert "schema version 14 is ready" in command(site / "bin/migrate.php")
         status, unlicensed = request("/")
         assert status == 503 and "尚未获得有效授权" in unlicensed
 
@@ -157,12 +157,13 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         status, still_media = request(f"/admin/media/{image_id}/delete", {"_csrf": csrf(media_list)})
         assert status == 200 and "图片正被文章封面使用" in still_media
         status, new_page = request("/admin/pages/new")
-        assert status == 200
+        assert status == 200 and 'id="single-editor"' in new_page and 'name="body_format"' in new_page
         status, page_list = request("/admin/pages", {
             "_csrf": csrf(new_page), "title": "关于我们", "slug": "about", "body": "站点简介",
             "status": "published", "menu_order": "10"
         })
         assert status == 200 and "关于我们" in page_list
+        page_id = re.search(r'/admin/pages/(\d+)/edit', page_list).group(1)
         status, settings_form = request("/admin/settings")
         assert status == 200
         status, saved_settings = request("/admin/settings", {
@@ -221,6 +222,16 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         assert status == 200 and "第一篇文章" in front and "/page/about" in front and "自定义页脚" in front and "/uploads/" in front
         status, about = request("/page/about")
         assert status == 200 and "站点简介" in about
+        status, page_edit = request(f"/admin/pages/{page_id}/edit")
+        assert status == 200 and 'id="single-media-picker"' in page_edit
+        status, rich_page = request(f"/admin/pages/{page_id}/edit", {
+            "_csrf": csrf(page_edit), "title": "关于我们", "slug": "about",
+            "body": "<p><strong>富文本单页</strong><script>alert(1)</script></p>",
+            "body_format": "html", "status": "published", "menu_order": "10"
+        })
+        assert status == 200 and "单页已保存" in rich_page
+        public_page = request("/page/about")[1]
+        assert "<strong>富文本单页</strong>" in public_page and "<script>alert(1)</script>" not in public_page
         assert request("/assets/theme/bootstrap.min.css")[0] == 200
         assert request("/assets/theme/aoyun.css")[0] == 200
         status, slide_form = request("/admin/slides/new")
@@ -645,7 +656,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         assert request("/category/company-intro")[0] == 404
         assert "company-intro" not in request("/")[1]
         status, single_edit = request(f"/admin/categories/{single_id}/single")
-        assert status == 200 and "编辑此栏目的单页正文" in single_edit
+        assert status == 200 and "编辑此栏目的单页正文" in single_edit and 'id="single-editor"' in single_edit
         assert request(f"/admin/categories/{single_id}/single", client=reviewer)[0] == 403
         status, saved_single = request(f"/admin/categories/{single_id}/single", {
             "_csrf": csrf(single_edit), "title": "我们的公司",
@@ -668,6 +679,14 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             "_csrf": csrf(draft_single), "title": "我们的公司", "body": "重新发布", "status": "published",
         })
         assert status == 200 and "重新发布" in request("/category/company-intro")[1]
+        status, rich_single = request(f"/admin/categories/{single_id}/single", {
+            "_csrf": csrf(republished_single), "title": "我们的公司",
+            "body": "<p><strong>栏目富文本</strong><script>alert(1)</script></p>",
+            "body_format": "html", "status": "published",
+        })
+        assert status == 200
+        single_html = request("/category/company-intro")[1]
+        assert "<strong>栏目富文本</strong>" in single_html and "<script>alert(1)</script>" not in single_html
 
         status, link_form = request("/admin/categories/new")
         status, invalid_link = request("/admin/categories", {
