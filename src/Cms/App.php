@@ -206,7 +206,7 @@ final class App
                 'page_title' => '管理概览',
                 'category_count' => count($repo->categories()),
                 'post_count' => $repo->countPosts(),
-                'published_count' => $repo->countPosts('published', null, true),
+                'published_count' => $repo->countPosts('published', null, true, includeFuture: true),
                 'draft_count' => $repo->countPosts('draft'),
                 'recent_posts' => $base['can']['content.view'] ? $repo->posts() : array(),
                 'license' => $store->status()
@@ -297,10 +297,10 @@ final class App
             $category = $_GET['category_id'] ?? '';
             $categoryId = is_string($category) && ctype_digit($category) && (int) $category > 0 ? (int) $category : null;
             $filters = array('q' => $keyword, 'status' => $status, 'category_id' => $categoryId ?? '', 'feature' => $feature);
-            $total = $repo->countPosts($status ?: null, $categoryId, true, null, $keyword ?: null, $feature ?: null);
+            $total = $repo->countPosts($status ?: null, $categoryId, true, null, $keyword ?: null, $feature ?: null, true);
             $totalPages = (int) ceil($total / 20);
             $page = self::boundedPage($totalPages);
-            View::render('admin/posts', $base + array('page_title' => '文章管理', 'posts' => $repo->posts($status ?: null, $categoryId, true, null, $keyword ?: null, $page, $feature ?: null), 'categories' => $repo->categories(), 'filters' => $filters, 'total' => $total, 'page' => $page, 'total_pages' => $totalPages));
+            View::render('admin/posts', $base + array('page_title' => '文章管理', 'posts' => $repo->posts($status ?: null, $categoryId, true, null, $keyword ?: null, $page, $feature ?: null, true), 'categories' => $repo->categories(), 'filters' => $filters, 'total' => $total, 'page' => $page, 'total_pages' => $totalPages));
             return;
         }
         if ($path === '/admin/posts/bulk' && $method === 'POST') {
@@ -311,7 +311,14 @@ final class App
                     throw new InvalidArgumentException('所选文章无效。');
                 }
                 $action = self::postString('action');
-                if (in_array($action, array('copy', 'move'), true)) {
+                if ($action === 'sorting') {
+                    $orders = $_POST['sort_order'] ?? array();
+                    if (! is_array($orders)) {
+                        throw new InvalidArgumentException('排序值无效。');
+                    }
+                    $affected = $repo->savePostSortOrders($orders);
+                    $_SESSION['flash'] = '已保存 ' . $affected . ' 篇文章的排序。';
+                } elseif (in_array($action, array('copy', 'move'), true)) {
                     $categoryId = filter_var(self::postString('target_category_id'), FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
                     if ($categoryId === false) {
                         throw new InvalidArgumentException('请选择目标列表栏目。');
@@ -602,6 +609,8 @@ final class App
             'slug' => self::postString('slug'),
             'body' => self::postString('body'),
             'body_format' => self::postString('body_format') ?: (string) ($current['body_format'] ?? 'plain'),
+            'published_at' => array_key_exists('published_at', $_POST) ? self::postString('published_at') : date('Y-m-d\TH:i', (int) ($current['published_at'] ?? time())),
+            'sort_order' => array_key_exists('sort_order', $_POST) ? self::postString('sort_order') : (string) ($current['sort_order'] ?? 255),
             'status' => self::postString('status'),
             'category_id' => self::postString('category_id'),
             'visibility' => self::postString('visibility') ?: 'public',
@@ -628,6 +637,11 @@ final class App
             if (! is_array($input['extra']) || count($input['extra']) > 100) {
                 throw new InvalidArgumentException('扩展字段无效。');
             }
+            $publishDate = \DateTimeImmutable::createFromFormat('!Y-m-d\TH:i', $input['published_at']);
+            if ($publishDate === false || $publishDate->format('Y-m-d\TH:i') !== $input['published_at']) {
+                throw new InvalidArgumentException('发布时间无效。');
+            }
+            $input['published_at'] = (string) $publishDate->getTimestamp();
             $input['body'] = RichText::clean($input['body'], $input['body_format']);
             $tags = new TagRepository($pdo);
             $media = new MediaRepository($pdo, $this->root . '/public');

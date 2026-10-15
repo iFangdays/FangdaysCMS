@@ -15,7 +15,7 @@
   <div class="text-center mb-4"><p class="site-kicker text-success mb-1">LATEST</p><h2>最新发布</h2></div>
   <div class="row">
     <?php foreach ($posts as $post): ?><div class="col-md-6 col-lg-4 mb-4"><article class="card h-100 site-card"><?php if ($post['cover_path']): ?><a href="<?= \FangdaysCMS\Cms\View::e(\FangdaysCMS\Cms\View::postLink($post)) ?>"><img class="site-cover" src="<?= \FangdaysCMS\Cms\View::e($post['cover_path']) ?>" alt="" loading="lazy"></a><?php endif; ?><div class="card-body">
-      <p class="small text-muted mb-2"><?= \FangdaysCMS\Cms\View::e($post['category_name'] ?? '未分类') ?> · <?= date('Y-m-d', (int) $post['created_at']) ?><?= $post['visibility'] === 'members' ? ' · 会员' : '' ?></p>
+      <p class="small text-muted mb-2"><?= \FangdaysCMS\Cms\View::e($post['category_name'] ?? '未分类') ?> · <?= date('Y-m-d', (int) $post['published_at']) ?><?= $post['visibility'] === 'members' ? ' · 会员' : '' ?></p>
       <h3 class="h5"><a href="<?= \FangdaysCMS\Cms\View::e(\FangdaysCMS\Cms\View::postLink($post)) ?>"<?= $post['title_color'] !== '' ? ' style="color:' . \FangdaysCMS\Cms\View::e($post['title_color']) . '"' : '' ?>><?= \FangdaysCMS\Cms\View::e($post['title']) ?></a></h3>
       <?php if ($post['subtitle'] !== ''): ?><p class="small mb-2"><?= \FangdaysCMS\Cms\View::e($post['subtitle']) ?></p><?php endif; ?>
       <p class="text-muted mb-0"><?= \FangdaysCMS\Cms\View::e($post['seo_description'] ?: \FangdaysCMS\Cms\RichText::summary($post['body'], $post['body_format'], 90)) ?></p>

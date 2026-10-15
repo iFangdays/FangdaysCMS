@@ -8,7 +8,7 @@ use PDO;
 
 final class ContentRepository
 {
-    private const POST_META_SELECT = "COALESCE(pm.subtitle, '') AS subtitle, COALESCE(pm.author, '') AS author, COALESCE(pm.source, '') AS source, COALESCE(pm.title_color, '') AS title_color, COALESCE(pm.outlink, '') AS outlink, COALESCE(pm.seo_keywords, '') AS seo_keywords, COALESCE(pm.seo_description, '') AS seo_description, COALESCE(pm.is_top, 0) AS is_top, COALESCE(pm.is_recommended, 0) AS is_recommended, COALESCE(pm.is_headline, 0) AS is_headline, COALESCE(pm.body_format, 'plain') AS body_format";
+    private const POST_META_SELECT = "COALESCE(pm.subtitle, '') AS subtitle, COALESCE(pm.author, '') AS author, COALESCE(pm.source, '') AS source, COALESCE(pm.title_color, '') AS title_color, COALESCE(pm.outlink, '') AS outlink, COALESCE(pm.seo_keywords, '') AS seo_keywords, COALESCE(pm.seo_description, '') AS seo_description, COALESCE(pm.is_top, 0) AS is_top, COALESCE(pm.is_recommended, 0) AS is_recommended, COALESCE(pm.is_headline, 0) AS is_headline, COALESCE(pm.body_format, 'plain') AS body_format, COALESCE(NULLIF(pm.published_at, 0), p.created_at) AS published_at, COALESCE(pm.sort_order, 255) AS sort_order";
 
     public function __construct(private readonly PDO $pdo)
     {
@@ -223,17 +223,17 @@ final class ContentRepository
         return $result;
     }
 
-    public function posts(?string $status = null, ?int $categoryId = null, bool $includeMembers = false, ?int $tagId = null, ?string $query = null, int $page = 1, ?string $feature = null): array
+    public function posts(?string $status = null, ?int $categoryId = null, bool $includeMembers = false, ?int $tagId = null, ?string $query = null, int $page = 1, ?string $feature = null, bool $includeFuture = false): array
     {
-        [$where, $params] = $this->postFilters($status, $categoryId, $includeMembers, $tagId, $query, $feature);
+        [$where, $params] = $this->postFilters($status, $categoryId, $includeMembers, $tagId, $query, $feature, $includeFuture);
         $sql = "SELECT p.id, p.category_id, p.title, p.slug, p.body, p.status, p.created_at, p.updated_at, c.name AS category_name, COALESCE(v.visibility, 'public') AS visibility, m.path AS cover_path, " . self::POST_META_SELECT . " FROM posts p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN post_visibility v ON v.post_id = p.id LEFT JOIN post_cover pc ON pc.post_id = p.id LEFT JOIN media m ON m.id = pc.media_id LEFT JOIN post_meta pm ON pm.post_id = p.id";
         if ($where) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
         }
-        $sql .= ' ORDER BY COALESCE(pm.is_top, 0) DESC, COALESCE(pm.is_recommended, 0) DESC, COALESCE(pm.is_headline, 0) DESC, p.created_at DESC, p.id DESC LIMIT ? OFFSET ?';
+        $sql .= ' ORDER BY COALESCE(pm.is_top, 0) DESC, COALESCE(pm.is_recommended, 0) DESC, COALESCE(pm.is_headline, 0) DESC, COALESCE(pm.sort_order, 255) ASC, COALESCE(NULLIF(pm.published_at, 0), p.created_at) DESC, p.id DESC LIMIT ? OFFSET ?';
         $stmt = $this->pdo->prepare($sql);
         foreach ($params as $index => $param) {
-            $stmt->bindValue($index + 1, $param);
+            $stmt->bindValue($index + 1, $param, is_int($param) ? PDO::PARAM_INT : PDO::PARAM_STR);
         }
         $stmt->bindValue(count($params) + 1, 20, PDO::PARAM_INT);
         $stmt->bindValue(count($params) + 2, (max(1, $page) - 1) * 20, PDO::PARAM_INT);
@@ -241,15 +241,18 @@ final class ContentRepository
         return $stmt->fetchAll();
     }
 
-    public function countPosts(?string $status = null, ?int $categoryId = null, bool $includeMembers = false, ?int $tagId = null, ?string $query = null, ?string $feature = null): int
+    public function countPosts(?string $status = null, ?int $categoryId = null, bool $includeMembers = false, ?int $tagId = null, ?string $query = null, ?string $feature = null, bool $includeFuture = false): int
     {
-        [$where, $params] = $this->postFilters($status, $categoryId, $includeMembers, $tagId, $query, $feature);
+        [$where, $params] = $this->postFilters($status, $categoryId, $includeMembers, $tagId, $query, $feature, $includeFuture);
         $sql = 'SELECT COUNT(*) FROM posts p LEFT JOIN post_visibility v ON v.post_id = p.id LEFT JOIN post_meta pm ON pm.post_id = p.id';
         if ($where) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
         }
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($params);
+        foreach ($params as $index => $param) {
+            $stmt->bindValue($index + 1, $param, is_int($param) ? PDO::PARAM_INT : PDO::PARAM_STR);
+        }
+        $stmt->execute();
         return (int) $stmt->fetchColumn();
     }
 
@@ -262,8 +265,10 @@ final class ContentRepository
 
     public function publishedPostBySlug(string $slug): ?array
     {
-        $stmt = $this->pdo->prepare("SELECT p.id, p.category_id, p.title, p.slug, p.body, p.status, p.created_at, p.updated_at, c.name AS category_name, c.slug AS category_slug, COALESCE(v.visibility, 'public') AS visibility, m.path AS cover_path, " . self::POST_META_SELECT . " FROM posts p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN post_visibility v ON v.post_id = p.id LEFT JOIN post_cover pc ON pc.post_id = p.id LEFT JOIN media m ON m.id = pc.media_id LEFT JOIN post_meta pm ON pm.post_id = p.id WHERE p.slug = ? AND p.status = 'published'");
-        $stmt->execute(array($slug));
+        $stmt = $this->pdo->prepare("SELECT p.id, p.category_id, p.title, p.slug, p.body, p.status, p.created_at, p.updated_at, c.name AS category_name, c.slug AS category_slug, COALESCE(v.visibility, 'public') AS visibility, m.path AS cover_path, " . self::POST_META_SELECT . " FROM posts p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN post_visibility v ON v.post_id = p.id LEFT JOIN post_cover pc ON pc.post_id = p.id LEFT JOIN media m ON m.id = pc.media_id LEFT JOIN post_meta pm ON pm.post_id = p.id WHERE p.slug = ? AND p.status = 'published' AND COALESCE(NULLIF(pm.published_at, 0), p.created_at) <= ?");
+        $stmt->bindValue(1, $slug);
+        $stmt->bindValue(2, time(), PDO::PARAM_INT);
+        $stmt->execute();
         return $stmt->fetch() ?: null;
     }
 
@@ -324,6 +329,16 @@ final class ContentRepository
             throw new InvalidArgumentException('正文格式无效。');
         }
         $values['body_format'] = $format;
+        $publishedAt = $attributes['published_at'] ?? $post['published_at'];
+        if ((! is_int($publishedAt) && (! is_string($publishedAt) || ! ctype_digit($publishedAt))) || (int) $publishedAt < 1 || (int) $publishedAt > 253402300799) {
+            throw new InvalidArgumentException('发布时间无效。');
+        }
+        $values['published_at'] = (int) $publishedAt;
+        $sortOrder = $attributes['sort_order'] ?? $post['sort_order'];
+        if ((! is_int($sortOrder) && (! is_string($sortOrder) || ! ctype_digit($sortOrder))) || (int) $sortOrder < 0 || (int) $sortOrder > 1000000) {
+            throw new InvalidArgumentException('排序值须为 0 到 1000000 的整数。');
+        }
+        $values['sort_order'] = (int) $sortOrder;
         foreach (array('is_top', 'is_recommended', 'is_headline') as $name) {
             $flag = $attributes[$name] ?? '0';
             if (! in_array($flag, array('0', '1'), true)) {
@@ -333,7 +348,7 @@ final class ContentRepository
         }
         $exists = $this->pdo->prepare('SELECT post_id FROM post_meta WHERE post_id = ?');
         $exists->execute(array($postId));
-        $columns = array('subtitle', 'author', 'source', 'title_color', 'outlink', 'seo_keywords', 'seo_description', 'is_top', 'is_recommended', 'is_headline', 'body_format');
+        $columns = array('subtitle', 'author', 'source', 'title_color', 'outlink', 'seo_keywords', 'seo_description', 'is_top', 'is_recommended', 'is_headline', 'body_format', 'published_at', 'sort_order');
         if ($exists->fetchColumn() === false) {
             $stmt = $this->pdo->prepare('INSERT INTO post_meta (post_id, ' . implode(', ', $columns) . ') VALUES (' . implode(', ', array_fill(0, count($columns) + 1, '?')) . ')');
             $stmt->execute(array_merge(array($postId), array_map(static fn (string $name) => $values[$name], $columns)));
@@ -392,7 +407,7 @@ final class ContentRepository
             } else {
                 $insert = $this->pdo->prepare('INSERT INTO posts (category_id, title, slug, body, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
                 $relations = array(
-                    'post_meta' => array('subtitle', 'author', 'source', 'title_color', 'outlink', 'seo_keywords', 'seo_description', 'is_top', 'is_recommended', 'is_headline', 'body_format'),
+                    'post_meta' => array('subtitle', 'author', 'source', 'title_color', 'outlink', 'seo_keywords', 'seo_description', 'is_top', 'is_recommended', 'is_headline', 'body_format', 'published_at', 'sort_order'),
                     'post_visibility' => array('visibility'),
                     'post_cover' => array('media_id'),
                     'post_tags' => array('tag_id'),
@@ -407,6 +422,40 @@ final class ContentRepository
                         $stmt = $this->pdo->prepare('INSERT INTO ' . $table . ' (post_id, ' . $fields . ') SELECT ?, ' . $fields . ' FROM ' . $table . ' WHERE post_id = ?');
                         $stmt->execute(array($copyId, $source['id']));
                     }
+                }
+            }
+            $this->pdo->commit();
+        } catch (\Throwable $error) {
+            $this->pdo->rollBack();
+            throw $error;
+        }
+        return count($validated);
+    }
+
+    public function savePostSortOrders(array $orders): int
+    {
+        if (count($orders) < 1 || count($orders) > 20) {
+            throw new InvalidArgumentException('请选择本页文章设置排序。');
+        }
+        $validated = array();
+        foreach ($orders as $id => $value) {
+            if (! ctype_digit((string) $id) || (int) $id < 1 || ! is_string($value) || ! ctype_digit($value) || (int) $value > 1000000) {
+                throw new InvalidArgumentException('排序值须为 0 到 1000000 的整数。');
+            }
+            $validated[(int) $id] = (int) $value;
+        }
+        $this->pdo->beginTransaction();
+        try {
+            $exists = $this->pdo->prepare('SELECT 1 FROM post_meta WHERE post_id = ?');
+            $insert = $this->pdo->prepare("INSERT INTO post_meta (post_id, seo_description, published_at, sort_order) VALUES (?, '', ?, ?)");
+            $update = $this->pdo->prepare('UPDATE post_meta SET sort_order = ? WHERE post_id = ?');
+            foreach ($validated as $id => $value) {
+                $post = $this->post($id) ?? throw new InvalidArgumentException('所选文章已不存在，请刷新列表。');
+                $exists->execute(array($id));
+                if ($exists->fetchColumn() === false) {
+                    $insert->execute(array($id, $post['published_at'], $value));
+                } else {
+                    $update->execute(array($value, $id));
                 }
             }
             $this->pdo->commit();
@@ -479,7 +528,7 @@ final class ContentRepository
         return $absolute || $relative;
     }
 
-    private function postFilters(?string $status, ?int $categoryId, bool $includeMembers, ?int $tagId, ?string $query, ?string $feature): array
+    private function postFilters(?string $status, ?int $categoryId, bool $includeMembers, ?int $tagId, ?string $query, ?string $feature, bool $includeFuture): array
     {
         $where = array();
         $params = array();
@@ -494,6 +543,10 @@ final class ContentRepository
         }
         if ($status === 'published' && ! $includeMembers) {
             $where[] = "COALESCE(v.visibility, 'public') = 'public'";
+        }
+        if ($status === 'published' && ! $includeFuture) {
+            $where[] = 'COALESCE(NULLIF(pm.published_at, 0), p.created_at) <= ?';
+            $params[] = time();
         }
         if ($tagId !== null) {
             $where[] = 'EXISTS (SELECT 1 FROM post_tags pt WHERE pt.post_id = p.id AND pt.tag_id = ?)';

@@ -101,6 +101,16 @@ try {
     if (count($repo->posts('published')) !== 0 || count($repo->posts('published', null, true, $tag)) !== 1) {
         throw new RuntimeException('MySQL tag or visibility check failed.');
     }
+    $repo->savePostSortOrders(array($post => '2'));
+    if ((int) $repo->post($post)['sort_order'] !== 2 || $repo->post($post)['subtitle'] !== 'MySQL 副标题') {
+        throw new RuntimeException('MySQL sorting lost article metadata.');
+    }
+    $futurePost = $repo->savePost(null, null, 'MySQL 定时文章', 'mysql-scheduled', '正文', 'published');
+    $repo->savePostMeta($futurePost, array('published_at' => (string) (time() + 3600), 'sort_order' => '0'));
+    if ($repo->publishedPostBySlug('mysql-scheduled') !== null || $repo->countPosts('published', null, true, null, 'MySQL 定时文章') !== 0 || $repo->countPosts('published', null, true, null, 'MySQL 定时文章', includeFuture: true) !== 1) {
+        throw new RuntimeException('MySQL scheduled publication failed.');
+    }
+    $repo->deletePost($futurePost);
     for ($i = 1; $i <= 21; $i++) {
         $repo->savePost(null, null, 'MySQL 分页 ' . $i, 'mysql-page-' . $i, '正文', 'published');
     }
@@ -149,20 +159,26 @@ try {
     $pdo->exec('ALTER TABLE categories DROP FOREIGN KEY fk_categories_parent, DROP COLUMN parent_id');
     $pdo->exec('UPDATE cms_schema SET version = 6 WHERE id = 1');
     \FangdaysCMS\Cms\Migrator::ensure($pdo);
-    if ((int) $pdo->query('SELECT version FROM cms_schema WHERE id = 1')->fetchColumn() !== 10 || (int) $pdo->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'categories' AND COLUMN_NAME = 'parent_id'")->fetchColumn() !== 1 || $repo->post($post) === null || (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'category_settings'")->fetchColumn() !== 1 || (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'post_meta'")->fetchColumn() !== 1) {
+    if ((int) $pdo->query('SELECT version FROM cms_schema WHERE id = 1')->fetchColumn() !== 11 || (int) $pdo->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'categories' AND COLUMN_NAME = 'parent_id'")->fetchColumn() !== 1 || $repo->post($post) === null || (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'category_settings'")->fetchColumn() !== 1 || (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'post_meta'")->fetchColumn() !== 1) {
         throw new RuntimeException('MySQL upgrade from schema version 6 failed.');
     }
     $repo->savePostMeta($post, array('subtitle' => '升级保留', 'is_top' => '1'));
     $pdo->exec('UPDATE cms_schema SET version = 8 WHERE id = 1');
     \FangdaysCMS\Cms\Migrator::ensure($pdo);
-    if ($repo->post($post)['subtitle'] !== '升级保留' || (int) $pdo->query('SELECT version FROM cms_schema WHERE id = 1')->fetchColumn() !== 10) {
+    if ($repo->post($post)['subtitle'] !== '升级保留' || (int) $pdo->query('SELECT version FROM cms_schema WHERE id = 1')->fetchColumn() !== 11) {
         throw new RuntimeException('MySQL upgrade from schema version 8 lost post metadata.');
     }
     $pdo->exec('ALTER TABLE post_meta DROP COLUMN body_format');
     $pdo->exec('UPDATE cms_schema SET version = 9 WHERE id = 1');
     \FangdaysCMS\Cms\Migrator::ensure($pdo);
-    if ($repo->post($post)['body_format'] !== 'plain' || $repo->post($post)['subtitle'] !== '升级保留' || (int) $pdo->query('SELECT version FROM cms_schema WHERE id = 1')->fetchColumn() !== 10) {
+    if ($repo->post($post)['body_format'] !== 'plain' || $repo->post($post)['subtitle'] !== '升级保留' || (int) $pdo->query('SELECT version FROM cms_schema WHERE id = 1')->fetchColumn() !== 11) {
         throw new RuntimeException('MySQL upgrade from schema version 9 lost article content or metadata.');
+    }
+    $pdo->exec('ALTER TABLE post_meta DROP COLUMN published_at, DROP COLUMN sort_order');
+    $pdo->exec('UPDATE cms_schema SET version = 10 WHERE id = 1');
+    \FangdaysCMS\Cms\Migrator::ensure($pdo);
+    if ((int) $pdo->query('SELECT version FROM cms_schema WHERE id = 1')->fetchColumn() !== 11 || (int) $repo->post($post)['sort_order'] !== 255 || (int) $repo->post($post)['published_at'] !== (int) $repo->post($post)['created_at']) {
+        throw new RuntimeException('MySQL upgrade from schema version 10 lost publication defaults.');
     }
     echo "FangdaysCMS MySQL schema, content, tags, membership, and roles passed\n";
 } finally {

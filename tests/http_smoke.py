@@ -93,7 +93,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             },
         )
         assert status == 200 and "后台登录" in login, login[:400]
-        assert "schema version 10 is ready" in command(site / "bin/migrate.php")
+        assert "schema version 11 is ready" in command(site / "bin/migrate.php")
         status, unlicensed = request("/")
         assert status == 503 and "尚未获得有效授权" in unlicensed
 
@@ -318,6 +318,40 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         assert status == 200 and "第一篇文章" in category
         status, protected = request("/config/app.php")
         assert "password" not in protected and "license_public_keys" not in protected
+
+        status, sort_list = request("/admin/posts")
+        assert status == 200 and 'name="sort_order[1]"' in sort_list and 'value="sorting"' in sort_list
+        status, sorted_list = request("/admin/posts/bulk", {
+            "_csrf": csrf(sort_list), "action": "sorting", "sort_order[1]": "7"
+        })
+        assert status == 200 and "已保存 1 篇文章的排序" in sorted_list and 'name="sort_order[1]" min="0" max="1000000" required value="7"' in sorted_list
+        status, reset_sort = request("/admin/posts/bulk", {
+            "_csrf": csrf(sorted_list), "action": "sorting", "sort_order[1]": "255"
+        })
+        assert status == 200 and "已保存 1 篇文章的排序" in reset_sort
+        status, scheduled_form = request("/admin/posts/new")
+        assert 'name="published_at"' in scheduled_form and 'name="sort_order"' in scheduled_form
+        status, scheduled_list = request("/admin/posts", {
+            "_csrf": csrf(scheduled_form), "title": "定时测试文章", "slug": "scheduled-smoke",
+            "category_id": "1", "body": "稍后公开", "status": "published", "visibility": "public",
+            "published_at": "2099-01-01T00:00", "sort_order": "1"
+        })
+        assert status == 200 and "文章已保存" in scheduled_list and "待发布" in scheduled_list
+        assert request("/post/scheduled-smoke")[0] == 404
+        assert "定时测试文章" not in request("/")[1]
+        scheduled_row = next(row for row in re.findall(r"<tr>(.*?)</tr>", scheduled_list, re.S) if "scheduled-smoke" in row)
+        scheduled_id = re.search(r'name="post_ids\[\]" value="(\d+)"', scheduled_row).group(1)
+        status, scheduled_edit = request(f"/admin/posts/{scheduled_id}/edit")
+        assert status == 200 and "查看已发布页面" not in scheduled_edit
+        status, published_list = request(f"/admin/posts/{scheduled_id}/edit", {
+            "_csrf": csrf(scheduled_edit), "title": "定时测试文章", "slug": "scheduled-smoke",
+            "category_id": "1", "body": "已经公开", "status": "published", "visibility": "public",
+            "published_at": "2020-01-01T00:00", "sort_order": "1"
+        })
+        assert status == 200 and "文章已保存" in published_list
+        assert "已经公开" in request("/post/scheduled-smoke")[1]
+        status, deleted_scheduled = request(f"/admin/posts/{scheduled_id}/delete", {"_csrf": csrf(published_list)})
+        assert status == 200 and "文章已删除" in deleted_scheduled
 
         status, model_form = request("/admin/models/new")
         assert status == 200 and "模型标识" in model_form

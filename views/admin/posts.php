@@ -20,23 +20,24 @@
       <?php if ($can['content.manage']): ?><label class="admin-mobile-select-all"><input type="checkbox" id="select-all-posts-mobile"> 全选本页</label><?php endif; ?>
       <div class="table-wrap"><table class="layui-table admin-card-table"><thead><tr>
         <?php if ($can['content.manage']): ?><th><input type="checkbox" id="select-all-posts" aria-label="选择本页全部文章"></th><?php endif; ?>
-        <th>ID</th><th>栏目</th><th>标题</th><th>更新时间</th><th>状态</th><th>可见范围</th><th>操作</th>
+        <th>ID</th><th>栏目</th><th>标题</th><th>发布时间</th><th>排序</th><th>状态</th><th>可见范围</th><th>操作</th>
       </tr></thead><tbody>
         <?php foreach ($posts as $post): ?><tr>
           <?php if ($can['content.manage']): ?><td data-label="选择"><input type="checkbox" name="post_ids[]" value="<?= (int) $post['id'] ?>" aria-label="选择文章 <?= \FangdaysCMS\Cms\View::e($post['title']) ?>"></td><?php endif; ?>
           <td data-label="ID"><?= (int) $post['id'] ?></td>
           <td data-label="栏目"><?= \FangdaysCMS\Cms\View::e($post['category_name'] ?? '未分类') ?></td>
           <td data-label="标题" class="admin-title-cell"><span class="admin-cell-value"><strong<?= $post['title_color'] !== '' ? ' style="color:' . \FangdaysCMS\Cms\View::e($post['title_color']) . '"' : '' ?>><?= \FangdaysCMS\Cms\View::e($post['title']) ?></strong><?php if ($post['is_top']): ?><small>置顶</small><?php endif; ?><?php if ($post['is_recommended']): ?><small>推荐</small><?php endif; ?><?php if ($post['is_headline']): ?><small>头条</small><?php endif; ?><small>/post/<?= \FangdaysCMS\Cms\View::e($post['slug']) ?></small></span></td>
-          <td data-label="更新时间"><?= date('Y-m-d H:i', (int) $post['updated_at']) ?></td>
-          <td data-label="状态"><span class="badge <?= $post['status'] === 'published' ? 'badge-success' : 'badge-muted' ?>"><?= $post['status'] === 'published' ? '已发布' : '草稿' ?></span></td>
+          <td data-label="发布时间"><?= date('Y-m-d H:i', (int) $post['published_at']) ?></td>
+          <td data-label="排序"><?php if ($can['content.manage']): ?><input class="admin-sort-input" type="number" name="sort_order[<?= (int) $post['id'] ?>]" min="0" max="1000000" required value="<?= (int) $post['sort_order'] ?>" aria-label="<?= \FangdaysCMS\Cms\View::e($post['title']) ?>的排序值"><?php else: ?><?= (int) $post['sort_order'] ?><?php endif; ?></td>
+          <td data-label="状态"><span class="badge <?= $post['status'] === 'published' && (int) $post['published_at'] <= time() ? 'badge-success' : 'badge-muted' ?>"><?= $post['status'] === 'draft' ? '草稿' : ((int) $post['published_at'] > time() ? '待发布' : '已发布') ?></span></td>
           <td data-label="可见范围"><?= $post['visibility'] === 'members' ? '仅会员' : '公开' ?></td>
           <td data-label="操作" class="actions">
-            <?php if ($post['status'] === 'published' && $post['visibility'] === 'public'): ?><a class="layui-btn layui-btn-xs layui-btn-primary" href="<?= \FangdaysCMS\Cms\View::e(\FangdaysCMS\Cms\View::postLink($post)) ?>" target="_blank" rel="noopener">查看</a><?php endif; ?>
+            <?php if ($post['status'] === 'published' && (int) $post['published_at'] <= time() && $post['visibility'] === 'public'): ?><a class="layui-btn layui-btn-xs layui-btn-primary" href="<?= \FangdaysCMS\Cms\View::e(\FangdaysCMS\Cms\View::postLink($post)) ?>" target="_blank" rel="noopener">查看</a><?php endif; ?>
             <?php if ($can['content.manage']): ?><a class="layui-btn layui-btn-xs" href="/admin/posts/<?= (int) $post['id'] ?>/edit">修改</a><?php endif; ?>
           </td>
         </tr><?php endforeach; ?>
       </tbody></table></div>
-      <?php if ($can['content.manage']): ?><div class="admin-bulk-bar"><span class="muted">对所选文章</span><button type="submit" name="action" value="publish" class="button-secondary">发布</button><button type="submit" name="action" value="draft" class="button-secondary">转为草稿</button><label class="admin-transfer-target">目标栏目 <select name="target_category_id"><option value="">请选择</option><?php foreach ($categories as $category): ?><?php if ($category['type'] !== 'list') { continue; } ?><option value="<?= (int) $category['id'] ?>"><?= \FangdaysCMS\Cms\View::e(str_repeat('— ', min(12, (int) $category['depth'])) . $category['name']) ?></option><?php endforeach; ?></select></label><button type="submit" name="action" value="copy" class="button-secondary">复制到栏目</button><button type="submit" name="action" value="move" class="button-secondary">移动到栏目</button><button type="submit" name="action" value="delete" class="button-danger" onclick="return confirm('确定删除所选文章？此操作无法撤销。')">批量删除</button></div><?php endif; ?>
+      <?php if ($can['content.manage']): ?><div class="admin-bulk-bar"><button type="submit" name="action" value="sorting" class="button-secondary">保存本页排序</button><span class="muted">对所选文章</span><button type="submit" name="action" value="publish" class="button-secondary">发布</button><button type="submit" name="action" value="draft" class="button-secondary">转为草稿</button><label class="admin-transfer-target">目标栏目 <select name="target_category_id"><option value="">请选择</option><?php foreach ($categories as $category): ?><?php if ($category['type'] !== 'list') { continue; } ?><option value="<?= (int) $category['id'] ?>"><?= \FangdaysCMS\Cms\View::e(str_repeat('— ', min(12, (int) $category['depth'])) . $category['name']) ?></option><?php endforeach; ?></select></label><button type="submit" name="action" value="copy" class="button-secondary">复制到栏目</button><button type="submit" name="action" value="move" class="button-secondary">移动到栏目</button><button type="submit" name="action" value="delete" class="button-danger" onclick="return confirm('确定删除所选文章？此操作无法撤销。')">批量删除</button></div><?php endif; ?>
     </form>
   <?php endif; ?>
 </section>

@@ -215,6 +215,22 @@ try {
     } catch (InvalidArgumentException $error) {
         check(str_contains($error->getMessage(), '无效'), 'Invalid bulk ID failed for the wrong reason.');
     }
+    $pageOne = (int) $pdo->query("SELECT id FROM posts WHERE slug = 'page-1'")->fetchColumn();
+    check($repo->savePostSortOrders(array($pageOne => '3', $postId => '2')) === 2 && (int) $repo->posts('published')[0]['id'] === $pageOne && $repo->post($postId)['subtitle'] === '内容副标题', 'Batch sorting changed metadata or public order.');
+    $repo->savePostSortOrders(array($pageOne => '255', $postId => '255'));
+    try {
+        $repo->savePostSortOrders(array($pageOne => '4', 99999999 => '5'));
+        throw new RuntimeException('Sorting accepted a missing article.');
+    } catch (InvalidArgumentException $error) {
+        check((int) $repo->post($pageOne)['sort_order'] === 255, 'Failed sorting partially changed an article.');
+    }
+    $futurePost = $repo->savePost(null, null, '定时文章', 'scheduled-post', '定时正文', 'published');
+    $futureTime = time() + 3600;
+    $repo->savePostMeta($futurePost, array('published_at' => (string) $futureTime, 'sort_order' => '1'));
+    check($repo->publishedPostBySlug('scheduled-post') === null && $repo->countPosts('published', null, true, null, '定时文章') === 0 && $repo->countPosts('published', null, true, null, '定时文章', includeFuture: true) === 1, 'Scheduled article was published early or hidden from admin.');
+    $repo->savePostMeta($futurePost, array('published_at' => (string) (time() - 60), 'sort_order' => '1'));
+    check($repo->publishedPostBySlug('scheduled-post') !== null && (int) $repo->posts('published')[0]['id'] === $futurePost, 'Scheduled article did not become public or sort first.');
+    $repo->deletePost($futurePost);
     $members = new MemberRepository($pdo);
     $memberId = $members->register('Reader@Example.com', '读者', 'member-test-password-123');
     check($members->authenticate('reader@example.com', 'member-test-password-123')['id'] == $memberId, 'Member authentication failed.');
@@ -271,7 +287,7 @@ try {
     $legacy->exec("INSERT INTO users VALUES (7, 'old-admin', 'hash', 1)");
     $legacy->exec("INSERT INTO posts VALUES (9, NULL, '旧文章', 'legacy', '正文', 'published', 1, 1)");
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 10, 'Legacy schema version was not upgraded.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 11, 'Legacy schema version was not upgraded.');
     check(in_array('parent_id', array_column($legacy->query('PRAGMA table_info(categories)')->fetchAll(), 'name'), true), 'Legacy categories did not gain a parent column.');
     check((int) $legacy->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'category_settings'")->fetchColumn() === 1, 'Legacy schema did not gain category settings.');
     check((int) $legacy->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'post_meta'")->fetchColumn() === 1, 'Legacy schema did not gain post metadata.');
@@ -281,26 +297,32 @@ try {
     $legacy->exec('DROP TABLE site_settings');
     $legacy->exec('UPDATE cms_schema SET version = 2 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 10 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 2 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 11 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 2 failed.');
     $legacy->exec('DROP TABLE post_field_values');
     $legacy->exec('DROP TABLE category_models');
     $legacy->exec('DROP TABLE model_fields');
     $legacy->exec('DROP TABLE content_models');
     $legacy->exec('UPDATE cms_schema SET version = 5 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 10 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1 && (new ContentModelRepository($legacy))->defaultModel()['slug'] === 'article', 'Upgrade from schema version 5 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 11 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1 && (new ContentModelRepository($legacy))->defaultModel()['slug'] === 'article', 'Upgrade from schema version 5 failed.');
     $legacy->exec('DROP TABLE category_settings');
     $legacy->exec('UPDATE cms_schema SET version = 7 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 10 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 7 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 11 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 7 failed.');
     $legacy->exec('DROP TABLE post_meta');
     $legacy->exec('UPDATE cms_schema SET version = 8 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 10 && (new ContentRepository($legacy))->publishedPostBySlug('legacy')['title'] === '旧文章', 'Upgrade from schema version 8 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 11 && (new ContentRepository($legacy))->publishedPostBySlug('legacy')['title'] === '旧文章', 'Upgrade from schema version 8 failed.');
     $legacy->exec('ALTER TABLE post_meta DROP COLUMN body_format');
     $legacy->exec('UPDATE cms_schema SET version = 9 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 10 && (new ContentRepository($legacy))->post(9)['body_format'] === 'plain', 'Upgrade from schema version 9 did not preserve plain content.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 11 && (new ContentRepository($legacy))->post(9)['body_format'] === 'plain', 'Upgrade from schema version 9 did not preserve plain content.');
+    $legacy->exec('ALTER TABLE post_meta DROP COLUMN published_at');
+    $legacy->exec('ALTER TABLE post_meta DROP COLUMN sort_order');
+    $legacy->exec('UPDATE cms_schema SET version = 10 WHERE id = 1');
+    Migrator::ensure($legacy);
+    $legacyPost = (new ContentRepository($legacy))->post(9);
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 11 && (int) $legacyPost['published_at'] === (int) $legacyPost['created_at'] && (int) $legacyPost['sort_order'] === 255, 'Upgrade from schema version 10 did not preserve publication defaults.');
 
     $unsafeRich = '<p><strong>加粗内容</strong><img src="/uploads/2026/10/pic.png" onerror="alert(1)"><a href="javascript:alert(1)">危险链接</a><script>alert(1)</script></p>';
     $safeRich = RichText::clean($unsafeRich, 'html');

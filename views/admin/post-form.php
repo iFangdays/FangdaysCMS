@@ -46,13 +46,16 @@
     <section class="panel stack"><div><p class="eyebrow">发布设置</p><h2>状态与范围</h2></div>
       <label>状态<select name="status"><option value="draft" <?= ($post['status'] ?? 'draft') === 'draft' ? 'selected' : '' ?>>草稿</option><option value="published" <?= ($post['status'] ?? '') === 'published' ? 'selected' : '' ?>>已发布</option></select></label>
       <label>可见范围<select name="visibility"><option value="public" <?= ($post['visibility'] ?? 'public') === 'public' ? 'selected' : '' ?>>公开</option><option value="members" <?= ($post['visibility'] ?? '') === 'members' ? 'selected' : '' ?>>仅会员</option></select></label>
+      <?php $publishValue = $post['published_at'] ?? time(); $publishValue = ctype_digit((string) $publishValue) ? date('Y-m-d\TH:i', (int) $publishValue) : (string) $publishValue; ?>
+      <label>发布时间<input type="datetime-local" name="published_at" required value="<?= \FangdaysCMS\Cms\View::e($publishValue) ?>"><small>设为未来时间并选择“已发布”后，到时自动公开。</small></label>
+      <label>排序值<input type="number" name="sort_order" min="0" max="1000000" required value="<?= \FangdaysCMS\Cms\View::e($post['sort_order'] ?? '255') ?>"><small>数字越小，在同类文章中越靠前。</small></label>
       <fieldset><legend>展示属性</legend><div class="check-grid">
         <label class="check"><input type="hidden" name="is_top" value="0"><input type="checkbox" name="is_top" value="1" <?= (int) ($post['is_top'] ?? 0) === 1 ? 'checked' : '' ?>> 置顶</label>
         <label class="check"><input type="hidden" name="is_recommended" value="0"><input type="checkbox" name="is_recommended" value="1" <?= (int) ($post['is_recommended'] ?? 0) === 1 ? 'checked' : '' ?>> 推荐</label>
         <label class="check"><input type="hidden" name="is_headline" value="0"><input type="checkbox" name="is_headline" value="1" <?= (int) ($post['is_headline'] ?? 0) === 1 ? 'checked' : '' ?>> 头条</label>
       </div></fieldset>
       <button class="layui-btn" type="submit">保存文章</button>
-      <?php if ($post && ($post['status'] ?? '') === 'published' && ($post['visibility'] ?? 'public') === 'public'): ?><a href="<?= \FangdaysCMS\Cms\View::e(\FangdaysCMS\Cms\View::postLink($post)) ?>" target="_blank" rel="noopener">查看已发布页面 ↗</a><?php endif; ?>
+      <?php if ($post && ($post['status'] ?? '') === 'published' && ctype_digit((string) ($post['published_at'] ?? '')) && (int) $post['published_at'] <= time() && ($post['visibility'] ?? 'public') === 'public'): ?><a href="<?= \FangdaysCMS\Cms\View::e(\FangdaysCMS\Cms\View::postLink($post)) ?>" target="_blank" rel="noopener">查看已发布页面 ↗</a><?php endif; ?>
     </section>
     <section class="panel stack"><div><p class="eyebrow">展示图片</p><h2>封面</h2></div>
       <label>封面图片<select name="cover_media_id"><option value="">无封面</option><?php foreach ($media as $image): ?><option value="<?= (int) $image['id'] ?>" <?= (string) ($post['cover_media_id'] ?? '') === (string) $image['id'] ? 'selected' : '' ?>><?= \FangdaysCMS\Cms\View::e($image['original_name']) ?> (#<?= (int) $image['id'] ?>)</option><?php endforeach; ?></select></label>
