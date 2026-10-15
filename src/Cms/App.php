@@ -392,6 +392,20 @@ final class App
 
     private function mediaAdminRoute(string $path, string $method, MediaRepository $media, array $base): void
     {
+        if ($path === '/admin/media/editor-upload' && $method === 'POST') {
+            $this->requireCsrf();
+            header('Content-Type: application/json; charset=utf-8');
+            header('X-Content-Type-Options: nosniff');
+            try {
+                $id = $media->upload(is_array($_FILES['image'] ?? null) ? $_FILES['image'] : array());
+                $image = $media->byId($id);
+                echo json_encode(array('id' => $id, 'path' => $image['path'], 'name' => $image['original_name']), JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+            } catch (InvalidArgumentException | \RuntimeException $error) {
+                http_response_code(422);
+                echo json_encode(array('error' => $error->getMessage()), JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+            }
+            return;
+        }
         if ($path === '/admin/media') {
             $error = null;
             if ($method === 'POST') {
@@ -575,6 +589,7 @@ final class App
             'title' => self::postString('title'),
             'slug' => self::postString('slug'),
             'body' => self::postString('body'),
+            'body_format' => self::postString('body_format') ?: (string) ($current['body_format'] ?? 'plain'),
             'status' => self::postString('status'),
             'category_id' => self::postString('category_id'),
             'visibility' => self::postString('visibility') ?: 'public',
@@ -601,6 +616,7 @@ final class App
             if (! is_array($input['extra']) || count($input['extra']) > 100) {
                 throw new InvalidArgumentException('扩展字段无效。');
             }
+            $input['body'] = RichText::clean($input['body'], $input['body_format']);
             $tags = new TagRepository($pdo);
             $media = new MediaRepository($pdo, $this->root . '/public');
             $models = new ContentModelRepository($pdo);

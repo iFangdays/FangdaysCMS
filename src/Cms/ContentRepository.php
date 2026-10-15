@@ -8,7 +8,7 @@ use PDO;
 
 final class ContentRepository
 {
-    private const POST_META_SELECT = "COALESCE(pm.subtitle, '') AS subtitle, COALESCE(pm.author, '') AS author, COALESCE(pm.source, '') AS source, COALESCE(pm.title_color, '') AS title_color, COALESCE(pm.outlink, '') AS outlink, COALESCE(pm.seo_keywords, '') AS seo_keywords, COALESCE(pm.seo_description, '') AS seo_description, COALESCE(pm.is_top, 0) AS is_top, COALESCE(pm.is_recommended, 0) AS is_recommended, COALESCE(pm.is_headline, 0) AS is_headline";
+    private const POST_META_SELECT = "COALESCE(pm.subtitle, '') AS subtitle, COALESCE(pm.author, '') AS author, COALESCE(pm.source, '') AS source, COALESCE(pm.title_color, '') AS title_color, COALESCE(pm.outlink, '') AS outlink, COALESCE(pm.seo_keywords, '') AS seo_keywords, COALESCE(pm.seo_description, '') AS seo_description, COALESCE(pm.is_top, 0) AS is_top, COALESCE(pm.is_recommended, 0) AS is_recommended, COALESCE(pm.is_headline, 0) AS is_headline, COALESCE(pm.body_format, 'plain') AS body_format";
 
     public function __construct(private readonly PDO $pdo)
     {
@@ -319,6 +319,11 @@ final class ContentRepository
             throw new InvalidArgumentException('文章跳转链接须为 http(s) 地址或站内绝对路径，且不能指向自身。');
         }
         $values['outlink'] = $outlink;
+        $format = $attributes['body_format'] ?? $post['body_format'];
+        if (! in_array($format, array('plain', 'html'), true)) {
+            throw new InvalidArgumentException('正文格式无效。');
+        }
+        $values['body_format'] = $format;
         foreach (array('is_top', 'is_recommended', 'is_headline') as $name) {
             $flag = $attributes[$name] ?? '0';
             if (! in_array($flag, array('0', '1'), true)) {
@@ -328,7 +333,7 @@ final class ContentRepository
         }
         $exists = $this->pdo->prepare('SELECT post_id FROM post_meta WHERE post_id = ?');
         $exists->execute(array($postId));
-        $columns = array('subtitle', 'author', 'source', 'title_color', 'outlink', 'seo_keywords', 'seo_description', 'is_top', 'is_recommended', 'is_headline');
+        $columns = array('subtitle', 'author', 'source', 'title_color', 'outlink', 'seo_keywords', 'seo_description', 'is_top', 'is_recommended', 'is_headline', 'body_format');
         if ($exists->fetchColumn() === false) {
             $stmt = $this->pdo->prepare('INSERT INTO post_meta (post_id, ' . implode(', ', $columns) . ') VALUES (' . implode(', ', array_fill(0, count($columns) + 1, '?')) . ')');
             $stmt->execute(array_merge(array($postId), array_map(static fn (string $name) => $values[$name], $columns)));

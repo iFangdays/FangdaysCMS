@@ -2,6 +2,7 @@
 
 import http.cookiejar
 import base64
+import json
 import os
 import pathlib
 import re
@@ -92,7 +93,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             },
         )
         assert status == 200 and "后台登录" in login, login[:400]
-        assert "schema version 9 is ready" in command(site / "bin/migrate.php")
+        assert "schema version 10 is ready" in command(site / "bin/migrate.php")
         status, unlicensed = request("/")
         assert status == 503 and "尚未获得有效授权" in unlicensed
 
@@ -118,6 +119,8 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         tag_id = re.search(r'/admin/tags/(\d+)/edit', tag_list).group(1)
 
         status, new_post = request("/admin/posts/new")
+        assert "ueditor.all.min.js" in new_post and 'id="post-editor"' in new_post
+        assert request("/assets/ueditor/ueditor.all.min.js")[0] == 200
         assert status == 200
         status, media_form = request("/admin/media")
         assert status == 200
@@ -388,6 +391,31 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         status, model_list = request("/admin/models")
         status, deleted_model = request(f"/admin/models/{model_id}/delete", {"_csrf": csrf(model_list)})
         assert status == 200 and "内容模型已删除" in deleted_model
+
+        status, rich_form = request("/admin/posts/1/edit")
+        assert status == 200 and 'name="body_format"' in rich_form
+        editor_upload = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\n{csrf(rich_form)}\r\n"
+                         f"--{boundary}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"body.png\"\r\nContent-Type: image/png\r\n\r\n").encode() + png + f"\r\n--{boundary}--\r\n".encode()
+        editor_request = urllib.request.Request(base + "/admin/media/editor-upload", data=editor_upload, headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+        with opener.open(editor_request, timeout=5) as response:
+            editor_image = json.loads(response.read().decode("utf-8"))
+        assert editor_image["path"].startswith("/uploads/")
+        status, rich_saved = request("/admin/posts/1/edit", {
+            "_csrf": csrf(rich_form), "title": "第一篇文章", "slug": "first-post", "category_id": "1",
+            "body": f'<p><strong>富文本正文</strong><img src="{editor_image["path"]}" onerror="alert(1)"><a href="javascript:alert(1)">链接</a><script>alert(1)</script></p>',
+            "body_format": "html", "status": "published", "visibility": "public", "cover_media_id": image_id,
+            "seo_description": "",
+        })
+        assert status == 200 and "文章已保存" in rich_saved
+        status, rich_article = request("/post/first-post")
+        assert status == 200 and "<strong>富文本正文</strong>" in rich_article and editor_image["path"] in rich_article
+        assert "onerror" not in rich_article and "javascript:alert(1)" not in rich_article and "<script>alert(1)</script>" not in rich_article
+        status, rich_home = request("/")
+        assert status == 200 and "富文本正文" in rich_home and "&lt;strong&gt;" not in rich_home
+        status, body_image_in_use = request(f'/admin/media/{editor_image["id"]}/delete', {"_csrf": csrf(rich_form)})
+        assert status == 200 and "图片正被文章正文使用" in body_image_in_use
+        status, editor_forbidden = request("/admin/media/editor-upload", {"_csrf": csrf(reviewer_dashboard)}, client=reviewer)
+        assert status == 403 and "无权访问" in editor_forbidden
 
         status, child_form = request("/admin/categories/new")
         status, child_list = request("/admin/categories", {

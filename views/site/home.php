@@ -18,7 +18,7 @@
       <p class="small text-muted mb-2"><?= \FangdaysCMS\Cms\View::e($post['category_name'] ?? '未分类') ?> · <?= date('Y-m-d', (int) $post['created_at']) ?><?= $post['visibility'] === 'members' ? ' · 会员' : '' ?></p>
       <h3 class="h5"><a href="<?= \FangdaysCMS\Cms\View::e(\FangdaysCMS\Cms\View::postLink($post)) ?>"<?= $post['title_color'] !== '' ? ' style="color:' . \FangdaysCMS\Cms\View::e($post['title_color']) . '"' : '' ?>><?= \FangdaysCMS\Cms\View::e($post['title']) ?></a></h3>
       <?php if ($post['subtitle'] !== ''): ?><p class="small mb-2"><?= \FangdaysCMS\Cms\View::e($post['subtitle']) ?></p><?php endif; ?>
-      <p class="text-muted mb-0"><?= \FangdaysCMS\Cms\View::e(mb_substr($post['seo_description'] ?: $post['body'], 0, 90)) ?></p>
+      <p class="text-muted mb-0"><?= \FangdaysCMS\Cms\View::e($post['seo_description'] ?: \FangdaysCMS\Cms\RichText::summary($post['body'], $post['body_format'], 90)) ?></p>
     </div></article></div><?php endforeach; ?>
     <?php if (! $posts): ?><div class="col-12 text-center text-muted">尚无已发布的内容。</div><?php endif; ?>
   </div>

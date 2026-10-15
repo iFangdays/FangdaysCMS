@@ -22,6 +22,7 @@ use FangdaysCMS\Cms\PageRepository;
 use FangdaysCMS\Cms\SettingsRepository;
 use FangdaysCMS\Cms\MediaRepository;
 use FangdaysCMS\Cms\View;
+use FangdaysCMS\Cms\RichText;
 use FangdaysCMS\Licensing\LicenseCode;
 use FangdaysCMS\Licensing\LicenseStore;
 
@@ -264,7 +265,7 @@ try {
     $legacy->exec("INSERT INTO users VALUES (7, 'old-admin', 'hash', 1)");
     $legacy->exec("INSERT INTO posts VALUES (9, NULL, '旧文章', 'legacy', '正文', 'published', 1, 1)");
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 9, 'Legacy schema version was not upgraded.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 10, 'Legacy schema version was not upgraded.');
     check(in_array('parent_id', array_column($legacy->query('PRAGMA table_info(categories)')->fetchAll(), 'name'), true), 'Legacy categories did not gain a parent column.');
     check((int) $legacy->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'category_settings'")->fetchColumn() === 1, 'Legacy schema did not gain category settings.');
     check((int) $legacy->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'post_meta'")->fetchColumn() === 1, 'Legacy schema did not gain post metadata.');
@@ -274,22 +275,32 @@ try {
     $legacy->exec('DROP TABLE site_settings');
     $legacy->exec('UPDATE cms_schema SET version = 2 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 9 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 2 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 10 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 2 failed.');
     $legacy->exec('DROP TABLE post_field_values');
     $legacy->exec('DROP TABLE category_models');
     $legacy->exec('DROP TABLE model_fields');
     $legacy->exec('DROP TABLE content_models');
     $legacy->exec('UPDATE cms_schema SET version = 5 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 9 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1 && (new ContentModelRepository($legacy))->defaultModel()['slug'] === 'article', 'Upgrade from schema version 5 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 10 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1 && (new ContentModelRepository($legacy))->defaultModel()['slug'] === 'article', 'Upgrade from schema version 5 failed.');
     $legacy->exec('DROP TABLE category_settings');
     $legacy->exec('UPDATE cms_schema SET version = 7 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 9 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 7 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 10 && (int) $legacy->query('SELECT COUNT(*) FROM posts')->fetchColumn() === 1, 'Upgrade from schema version 7 failed.');
     $legacy->exec('DROP TABLE post_meta');
     $legacy->exec('UPDATE cms_schema SET version = 8 WHERE id = 1');
     Migrator::ensure($legacy);
-    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 9 && (new ContentRepository($legacy))->publishedPostBySlug('legacy')['title'] === '旧文章', 'Upgrade from schema version 8 failed.');
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 10 && (new ContentRepository($legacy))->publishedPostBySlug('legacy')['title'] === '旧文章', 'Upgrade from schema version 8 failed.');
+    $legacy->exec('ALTER TABLE post_meta DROP COLUMN body_format');
+    $legacy->exec('UPDATE cms_schema SET version = 9 WHERE id = 1');
+    Migrator::ensure($legacy);
+    check((int) $legacy->query('SELECT version FROM cms_schema')->fetchColumn() === 10 && (new ContentRepository($legacy))->post(9)['body_format'] === 'plain', 'Upgrade from schema version 9 did not preserve plain content.');
+
+    $unsafeRich = '<p><strong>加粗内容</strong><img src="/uploads/2026/10/pic.png" onerror="alert(1)"><a href="javascript:alert(1)">危险链接</a><script>alert(1)</script></p>';
+    $safeRich = RichText::clean($unsafeRich, 'html');
+    check(str_contains($safeRich, '<strong>加粗内容</strong>') && str_contains($safeRich, 'src="/uploads/2026/10/pic.png"') && ! str_contains($safeRich, 'onerror') && ! str_contains($safeRich, 'javascript:') && ! str_contains($safeRich, '<script'), 'Rich text sanitizer did not preserve formatting or remove unsafe content.');
+    check(str_contains(RichText::render('<script>alert(1)</script>', 'plain'), '&lt;script&gt;'), 'Legacy plain body was rendered as HTML.');
+    check(RichText::summary('<p><strong>加粗内容</strong></p>', 'html', 20) === '加粗内容', 'Rich text summary contains markup.');
 
     $pages = new PageRepository($pdo);
     $pageId = $pages->save(null, '关于', 'about', '简介', 'draft', 5);

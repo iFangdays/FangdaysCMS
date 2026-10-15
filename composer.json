@@ -5,6 +5,9 @@
   "require": {
     "php": "^8.2",
     "ext-json": "*",
+    "ext-dom": "*",
+    "ext-fileinfo": "*",
+    "ext-libxml": "*",
     "ext-mbstring": "*",
     "ext-pdo": "*",
     "ext-sodium": "*"

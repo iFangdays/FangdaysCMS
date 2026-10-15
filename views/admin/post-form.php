@@ -12,7 +12,12 @@
       <label>URL 别名<input name="slug" required maxlength="160" pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="hello-world" value="<?= \FangdaysCMS\Cms\View::e($post['slug'] ?? '') ?>"><small>小写字母、数字与连字符。</small></label>
       <label>栏目<select name="category_id"><option value="">未分类</option><?php foreach ($categories as $category): ?><?php if ($category['type'] !== 'list') { continue; } ?><option value="<?= (int) $category['id'] ?>" <?= (string) ($post['category_id'] ?? '') === (string) $category['id'] ? 'selected' : '' ?>><?= \FangdaysCMS\Cms\View::e(str_repeat('— ', min(12, (int) $category['depth'])) . $category['name']) ?></option><?php endforeach; ?></select><?php if (! $categories): ?><small>可先到栏目管理创建分类。</small><?php endif; ?></label>
     </div>
-    <label>正文<textarea name="body" rows="20" placeholder="输入文章正文"><?= \FangdaysCMS\Cms\View::e($post['body'] ?? '') ?></textarea><small>当前正文以纯文本安全展示，换行会保留。</small></label>
+    <div class="admin-body-editor"><label for="post-body">正文</label><p class="muted">可设置段落、文字样式与链接，并从媒体库插入图片。</p>
+      <input type="hidden" name="body_format" id="post-body-format" value="<?= \FangdaysCMS\Cms\View::e($post['body_format'] ?? 'plain') ?>">
+      <textarea id="post-body" name="body" rows="20" placeholder="输入文章正文"><?= \FangdaysCMS\Cms\View::e($post['body'] ?? '') ?></textarea>
+      <div id="post-editor" class="rich-editor-host" hidden></div>
+      <div class="admin-editor-tools"><button class="layui-btn layui-btn-primary" type="button" id="insert-media" disabled><i class="fa fa-image" aria-hidden="true"></i> 从媒体库插入图片</button><small>编辑器未加载时可继续使用上方纯文本框。</small></div>
+    </div>
     <fieldset class="stack"><legend>文章属性与 SEO</legend>
       <label>副标题<input name="subtitle" maxlength="255" value="<?= \FangdaysCMS\Cms\View::e($post['subtitle'] ?? '') ?>"></label>
       <div class="field-row"><label>作者<input name="author" maxlength="100" value="<?= \FangdaysCMS\Cms\View::e($post['author'] ?? '') ?>"></label><label>来源<input name="source" maxlength="100" value="<?= \FangdaysCMS\Cms\View::e($post['source'] ?? '') ?>"></label></div>
@@ -55,6 +60,14 @@
     </section>
   </aside>
 </form>
+<dialog id="media-picker" class="admin-media-picker" aria-labelledby="media-picker-title">
+  <div class="admin-media-picker-head"><h2 id="media-picker-title">选择正文图片</h2><button class="layui-btn layui-btn-primary" type="button" id="close-media-picker" aria-label="关闭">关闭</button></div>
+  <?php if ($can['media.manage']): ?><div class="admin-media-upload"><label for="editor-image-upload">上传新图片</label><input id="editor-image-upload" type="file" accept="image/jpeg,image/png,image/webp,image/gif"><span id="editor-upload-status" role="status" aria-live="polite"></span></div><?php endif; ?>
+  <div id="editor-media-grid" class="admin-media-picker-grid">
+    <?php foreach ($media as $image): ?><button type="button" class="admin-media-choice" data-path="<?= \FangdaysCMS\Cms\View::e($image['path']) ?>" data-name="<?= \FangdaysCMS\Cms\View::e($image['original_name']) ?>"><img src="<?= \FangdaysCMS\Cms\View::e($image['path']) ?>" alt=""><span><?= \FangdaysCMS\Cms\View::e($image['original_name']) ?></span></button><?php endforeach; ?>
+  </div>
+  <?php if (! $media): ?><p class="muted" id="editor-media-empty">媒体库暂无图片，可上传新图片。</p><?php endif; ?>
+</dialog>
   </div>
 </div>
 <script>
@@ -72,5 +85,68 @@
     };
     category.addEventListener('change', sync);
     sync();
+  })();
+</script>
+<script src="/assets/ueditor/ueditor.config.js"></script>
+<script src="/assets/ueditor/ueditor.all.min.js"></script>
+<script src="/assets/ueditor/lang/zh-cn/zh-cn.js"></script>
+<script>
+  (() => {
+    const form = document.querySelector('form.admin-editor-grid');
+    const textarea = document.getElementById('post-body');
+    const format = document.getElementById('post-body-format');
+    const host = document.getElementById('post-editor');
+    const trigger = document.getElementById('insert-media');
+    const picker = document.getElementById('media-picker');
+    if (!form || !textarea || !host || !window.UE) return;
+    host.hidden = false;
+    const editor = UE.getEditor('post-editor', {
+      initialContent: <?= json_encode(\FangdaysCMS\Cms\RichText::editorHtml((string) ($post['body'] ?? ''), (string) ($post['body_format'] ?? 'plain')), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE) ?>
+    });
+    let editorReady = false;
+    editor.ready(() => {
+      editorReady = true;
+      textarea.hidden = true;
+      trigger.disabled = false;
+      trigger.nextElementSibling.textContent = '支持 JPG、PNG、WebP、GIF 图片，单张不超过 5 MB。';
+    });
+    form.addEventListener('submit', () => {
+      if (editorReady) {
+        textarea.value = editor.getContent();
+        format.value = 'html';
+      }
+    });
+    const insert = (path, name) => {
+      editor.execCommand('insertimage', {src: path, alt: name});
+      picker.close();
+      editor.focus();
+    };
+    trigger.addEventListener('click', () => picker.showModal());
+    document.getElementById('close-media-picker').addEventListener('click', () => picker.close());
+    document.getElementById('editor-media-grid').addEventListener('click', (event) => {
+      const choice = event.target.closest('button[data-path]');
+      if (choice) insert(choice.dataset.path, choice.dataset.name);
+    });
+    const upload = document.getElementById('editor-image-upload');
+    if (upload) upload.addEventListener('change', async () => {
+      const file = upload.files[0];
+      if (!file) return;
+      const status = document.getElementById('editor-upload-status');
+      status.textContent = '正在上传…';
+      const data = new FormData();
+      data.append('_csrf', form.querySelector('[name="_csrf"]').value);
+      data.append('image', file);
+      try {
+        const response = await fetch('/admin/media/editor-upload', {method: 'POST', body: data, credentials: 'same-origin'});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || '上传失败。');
+        status.textContent = '上传成功。';
+        insert(result.path, result.name);
+      } catch (error) {
+        status.textContent = error.message || '上传失败。';
+      } finally {
+        upload.value = '';
+      }
+    });
   })();
 </script>

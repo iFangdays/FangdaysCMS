@@ -81,6 +81,11 @@ final class MediaRepository
         if ((int) $stmt->fetchColumn() > 0) {
             throw new InvalidArgumentException('图片正被文章封面使用。');
         }
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM posts WHERE body LIKE ?');
+        $stmt->execute(array('%' . $media['path'] . '%'));
+        if ((int) $stmt->fetchColumn() > 0) {
+            throw new InvalidArgumentException('图片正被文章正文使用。');
+        }
         $stmt = $this->pdo->prepare('DELETE FROM media WHERE id = ?');
         $stmt->execute(array($id));
         $path = $this->publicRoot . $media['path'];
