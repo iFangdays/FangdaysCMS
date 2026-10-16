@@ -445,6 +445,13 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         })
         assert status == 200 and "扩展字段已保存" in model_edit
         field_id = re.search(r'/fields/(\d+)/edit', model_edit).group(1)
+        status, size_form = request(f"/admin/models/{model_id}/fields/new")
+        status, size_list = request(f"/admin/models/{model_id}/fields/new", {
+            "_csrf": csrf(size_form), "name": "ext_size", "label": "尺码",
+            "field_type": "multi", "options_text": "S,XS", "sort_order": "2",
+        })
+        assert status == 200 and "扩展字段已保存" in size_list
+        size_id = re.search(r'ext_size.*?/fields/(\d+)/edit', size_list, re.S).group(1)
         status, category_edit = request("/admin/categories/1/edit")
         assert status == 200
         status, category_list = request("/admin/categories/1/edit", {
@@ -462,12 +469,19 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             "title_color": "#176c73", "seo_keywords": "内容,专题",
             "seo_description": "文章摘要内容", "is_top": "1",
             "is_recommended": "1", "is_headline": "0",
-            f"extra[{field_id}]": "红色"
+            f"extra[{field_id}]": "红色", f"extra[{size_id}][]": "S"
         }
         status, updated_post = request("/admin/posts/1/edit", update)
         assert status == 200 and "文章已保存" in updated_post
         status, product_article = request("/post/first-post")
         assert status == 200 and "颜色" in product_article and "红色" in product_article
+        status, filtered_products = request("/category/news?ext_color=%E7%BA%A2%E8%89%B2&ext_size=S")
+        assert status == 200 and "筛选内容" in filtered_products and "第一篇文章" in filtered_products
+        assert "第一篇文章" not in request("/category/news?ext_color=%E7%BA%A2%E8%89%B2&ext_size=XS")[1]
+        assert "第一篇文章" not in request("/category/news?ext_color=%E8%93%9D%E8%89%B2&ext_size=S")[1]
+        invalid_filter_page = request("/category/news?ext_color=%E7%BB%BF%E8%89%B2")[1]
+        assert "筛选选项无效" in invalid_filter_page and "第一篇文章" not in invalid_filter_page
+        assert "第一篇文章" in request("/category/news?unknown=value")[1]
         assert "重要副标题" in product_article and "作者：编辑部" in product_article and "来源：本站" in product_article
         assert 'name="keywords" content="内容,专题"' in product_article
         assert 'name="description" content="文章摘要内容"' in product_article

@@ -216,6 +216,41 @@ final class ContentModelRepository
         return $this->publicFields($categoryId, $this->valuesForSingleCategory($categoryId));
     }
 
+    /** Resolve public category filters from the active model's select fields only. */
+    public function categoryFilters(int $categoryId, array $input): array
+    {
+        $model = $this->modelForCategory($categoryId);
+        $fields = array_values(array_filter($this->fields((int) $model['id']), static fn (array $field): bool => in_array($field['field_type'], array('select', 'multi'), true)));
+        $filters = array();
+        $params = array();
+        $invalid = false;
+        foreach ($fields as &$field) {
+            $raw = $input[$field['name']] ?? '';
+            if (! is_string($raw)) {
+                $field['current'] = '';
+                $invalid = true;
+                continue;
+            }
+            $value = trim($raw);
+            $field['current'] = $value;
+            if ($value === '') {
+                continue;
+            }
+            if (mb_strlen($value) > 100) {
+                $invalid = true;
+                continue;
+            }
+            $params[$field['name']] = $value;
+            if (! in_array($value, $field['options'], true)) {
+                $invalid = true;
+                continue;
+            }
+            $filters[] = array('id' => (int) $field['id'], 'type' => $field['field_type'], 'value' => $value);
+        }
+        unset($field);
+        return array('fields' => $fields, 'filters' => $filters, 'params' => $params, 'invalid' => $invalid);
+    }
+
     private function validatedValues(int $modelId, array $input): array
     {
         $values = array();

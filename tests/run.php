@@ -160,7 +160,7 @@ try {
     check($models->defaultModel()['slug'] === 'article', 'Default content model is missing.');
     $productModel = $models->saveModel(null, '产品模型', 'product');
     $colorField = $models->saveField(null, $productModel, 'ext_color', '颜色', 'select', "红色\n蓝色", true, 1);
-    $sizeField = $models->saveField(null, $productModel, 'ext_sizes', '尺码', 'multi', 'S,M,L', false, 2);
+    $sizeField = $models->saveField(null, $productModel, 'ext_sizes', '尺码', 'multi', 'S,XS,M,L', false, 2);
     $productCategory = $repo->saveCategory(null, '产品', 'products', 2);
     $models->bindCategory($productCategory, $productModel);
     check((int) $models->modelForCategory($productCategory)['id'] === $productModel, 'Category model binding failed.');
@@ -168,6 +168,16 @@ try {
     $models->setValuesForPost($productPost, $productCategory, array($colorField => '红色', $sizeField => array('S', 'M')));
     check($models->valuesForPost($productPost)[$sizeField] === 'S,M', 'Multiple choice values were not saved.');
     check($models->publicFieldsForPost($productPost, $productCategory)[0]['value'] === '红色', 'Model field was not exposed to the public post.');
+    $xsPost = $repo->savePost(null, $productCategory, '蓝色产品', 'blue-product', '正文', 'draft');
+    $models->setValuesForPost($xsPost, $productCategory, array($colorField => '蓝色', $sizeField => array('XS')));
+    $filterState = $models->categoryFilters($productCategory, array('ext_color' => '红色', 'ext_sizes' => 'S', 'ignored' => 'anything'));
+    check(count($filterState['filters']) === 2 && $filterState['params'] === array('ext_color' => '红色', 'ext_sizes' => 'S') && $repo->countPosts('draft', $productCategory, true, fieldFilters: $filterState['filters']) === 1 && (int) $repo->posts('draft', $productCategory, true, fieldFilters: $filterState['filters'])[0]['id'] === $productPost, 'Combined model field filters failed.');
+    check(str_contains(View::pagination(1, 2, '/category/products', $filterState['params']), 'ext_sizes=S&amp;page=2'), 'Filtered category pagination lost its conditions.');
+    $sizeOnly = $models->categoryFilters($productCategory, array('ext_sizes' => 'S'));
+    check($repo->countPosts('draft', $productCategory, true, fieldFilters: $sizeOnly['filters']) === 1, 'Multi choice filtering matched XS for S.');
+    check($models->categoryFilters($productCategory, array('ext_color' => '未定义'))['invalid'] === true, 'Invalid field option was not rejected.');
+    check($models->categoryFilters($productCategory, array('ext_color' => array('红色')))['invalid'] === true, 'Array-valued field filter was not rejected.');
+    $repo->deletePost($xsPost);
     $productSingle = $repo->saveCategory(null, '产品介绍', 'product-about', 3);
     $repo->saveCategorySettings($productSingle, 'single', '', '', '', '');
     $models->bindCategory($productSingle, $productModel);
@@ -208,6 +218,7 @@ try {
     $models->saveField($colorField, $productModel, 'ext_color', '商品颜色', 'select', '红色,蓝色', true, 1);
     check($models->field($colorField)['label'] === '商品颜色', 'Model field update failed.');
     $models->bindCategory($productCategory, (int) $models->defaultModel()['id']);
+    check($repo->countPosts('draft', $productCategory, true, fieldFilters: $filterState['filters']) === 0, 'Old model values remained searchable after category model changed.');
     $models->deleteModel($productModel);
     check($models->model($productModel) === null && $models->valuesForPost($productPost) === array(), 'Model deletion did not clear field definitions and values.');
     $tags = new TagRepository($pdo);

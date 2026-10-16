@@ -224,9 +224,9 @@ final class ContentRepository
         return $result;
     }
 
-    public function posts(?string $status = null, ?int $categoryId = null, bool $includeMembers = false, ?int $tagId = null, ?string $query = null, int $page = 1, ?string $feature = null, bool $includeFuture = false): array
+    public function posts(?string $status = null, ?int $categoryId = null, bool $includeMembers = false, ?int $tagId = null, ?string $query = null, int $page = 1, ?string $feature = null, bool $includeFuture = false, array $fieldFilters = array()): array
     {
-        [$where, $params] = $this->postFilters($status, $categoryId, $includeMembers, $tagId, $query, $feature, $includeFuture);
+        [$where, $params] = $this->postFilters($status, $categoryId, $includeMembers, $tagId, $query, $feature, $includeFuture, $fieldFilters);
         $sql = "SELECT p.id, p.category_id, p.title, p.slug, p.body, p.status, p.created_at, p.updated_at, c.name AS category_name, COALESCE(v.visibility, 'public') AS visibility, m.path AS cover_path, " . self::POST_META_SELECT . " FROM posts p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN post_visibility v ON v.post_id = p.id LEFT JOIN post_cover pc ON pc.post_id = p.id LEFT JOIN media m ON m.id = pc.media_id LEFT JOIN post_meta pm ON pm.post_id = p.id";
         if ($where) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
@@ -242,9 +242,9 @@ final class ContentRepository
         return $stmt->fetchAll();
     }
 
-    public function countPosts(?string $status = null, ?int $categoryId = null, bool $includeMembers = false, ?int $tagId = null, ?string $query = null, ?string $feature = null, bool $includeFuture = false): int
+    public function countPosts(?string $status = null, ?int $categoryId = null, bool $includeMembers = false, ?int $tagId = null, ?string $query = null, ?string $feature = null, bool $includeFuture = false, array $fieldFilters = array()): int
     {
-        [$where, $params] = $this->postFilters($status, $categoryId, $includeMembers, $tagId, $query, $feature, $includeFuture);
+        [$where, $params] = $this->postFilters($status, $categoryId, $includeMembers, $tagId, $query, $feature, $includeFuture, $fieldFilters);
         $sql = 'SELECT COUNT(*) FROM posts p LEFT JOIN post_visibility v ON v.post_id = p.id LEFT JOIN post_meta pm ON pm.post_id = p.id';
         if ($where) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
@@ -531,7 +531,7 @@ final class ContentRepository
         return $absolute || $relative;
     }
 
-    private function postFilters(?string $status, ?int $categoryId, bool $includeMembers, ?int $tagId, ?string $query, ?string $feature, bool $includeFuture): array
+    private function postFilters(?string $status, ?int $categoryId, bool $includeMembers, ?int $tagId, ?string $query, ?string $feature, bool $includeFuture, array $fieldFilters): array
     {
         $where = array();
         $params = array();
@@ -566,6 +566,25 @@ final class ContentRepository
             $where[] = "(p.title LIKE ? OR p.body LIKE ? OR pm.subtitle LIKE ? OR pm.author LIKE ? OR pm.source LIKE ? OR pm.seo_keywords LIKE ? OR EXISTS (SELECT 1 FROM post_field_values pf JOIN posts active_post ON active_post.id = pf.post_id JOIN model_fields mf ON mf.id = pf.field_id LEFT JOIN category_models cm ON cm.category_id = active_post.category_id WHERE pf.post_id = p.id AND mf.model_id = COALESCE(cm.model_id, (SELECT id FROM content_models WHERE slug = 'article')) AND pf.value LIKE ?))";
             for ($i = 0; $i < 7; $i++) {
                 $params[] = '%' . trim($query) . '%';
+            }
+        }
+        foreach ($fieldFilters as $filter) {
+            if (! is_array($filter) || ! is_int($filter['id'] ?? null) || $filter['id'] < 1 || ! is_string($filter['value'] ?? null) || ! in_array($filter['type'] ?? null, array('select', 'multi'), true)) {
+                throw new InvalidArgumentException('扩展字段筛选条件无效。');
+            }
+            $activeField = "EXISTS (SELECT 1 FROM post_field_values pf JOIN posts active_post ON active_post.id = pf.post_id JOIN model_fields mf ON mf.id = pf.field_id LEFT JOIN category_models cm ON cm.category_id = active_post.category_id WHERE pf.post_id = p.id AND pf.field_id = ? AND mf.model_id = COALESCE(cm.model_id, (SELECT id FROM content_models WHERE slug = 'article')) AND ";
+            if ($filter['type'] === 'multi') {
+                if ($this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
+                    $where[] = $activeField . "LOCATE(CONCAT(',', ?, ','), CONCAT(',', pf.value, ',')) > 0)";
+                } else {
+                    $where[] = $activeField . "instr(',' || pf.value || ',', ',' || ? || ',') > 0)";
+                }
+                $params[] = $filter['id'];
+                $params[] = $filter['value'];
+            } else {
+                $where[] = $activeField . 'pf.value = ?)';
+                $params[] = $filter['id'];
+                $params[] = $filter['value'];
             }
         }
         return array($where, $params);

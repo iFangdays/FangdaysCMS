@@ -73,10 +73,15 @@ try {
     $models = new ContentModelRepository($pdo);
     $model = $models->saveModel(null, '产品模型', 'product');
     $field = $models->saveField(null, $model, 'ext_color', '颜色', 'select', '红色,蓝色', true, 1);
+    $sizeField = $models->saveField(null, $model, 'ext_size', '尺码', 'multi', 'S,XS', false, 2);
     $models->bindCategory($category, $model);
-    $models->setValuesForPost($post, $category, array($field => '红色'));
+    $models->setValuesForPost($post, $category, array($field => '红色', $sizeField => array('S')));
     if ($models->publicFieldsForPost($post, $category)[0]['value'] !== '红色' || $repo->countPosts('published', null, true, null, '红色') !== 1) {
         throw new RuntimeException('MySQL content model field failed.');
+    }
+    $filters = $models->categoryFilters($category, array('ext_color' => '红色', 'ext_size' => 'S'));
+    if ($repo->countPosts('published', $category, true, fieldFilters: $filters['filters']) !== 1 || (int) $repo->posts('published', $category, true, fieldFilters: $filters['filters'])[0]['id'] !== $post) {
+        throw new RuntimeException('MySQL combined model field filters failed.');
     }
     $childCategory = $repo->saveCategory(null, '子栏目', 'mysql-child', 2, $category);
     $childPost = $repo->savePost(null, $childCategory, '层级文章', 'mysql-nested-post', '正文', 'published');

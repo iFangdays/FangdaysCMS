@@ -690,9 +690,10 @@ final class App
                 return;
             }
             $members = $base['member'] !== null;
-            $totalPages = (int) ceil($repo->countPosts('published', (int) $category['id'], $members) / 20);
+            $filterState = (new ContentModelRepository($pdo))->categoryFilters((int) $category['id'], $_GET);
+            $totalPages = $filterState['invalid'] ? 0 : (int) ceil($repo->countPosts('published', (int) $category['id'], $members, fieldFilters: $filterState['filters']) / 20);
             $page = self::boundedPage($totalPages);
-            View::render('site/category', $base + array('page_title' => $category['name'], 'seo_title' => $category['seo_title'], 'seo_keywords' => $category['seo_keywords'], 'seo_description' => $category['seo_description'], 'category' => $category, 'breadcrumb' => $repo->categoryAncestors((int) $category['id']), 'child_categories' => $repo->childCategories((int) $category['id']), 'posts' => $repo->posts('published', (int) $category['id'], $members, null, null, $page), 'page' => $page, 'total_pages' => $totalPages));
+            View::render('site/category', $base + array('page_title' => $category['name'], 'seo_title' => $category['seo_title'], 'seo_keywords' => $category['seo_keywords'], 'seo_description' => $category['seo_description'], 'category' => $category, 'breadcrumb' => $repo->categoryAncestors((int) $category['id']), 'child_categories' => $repo->childCategories((int) $category['id']), 'filter_fields' => $filterState['fields'], 'filter_params' => $filterState['params'], 'filter_invalid' => $filterState['invalid'], 'posts' => $filterState['invalid'] ? array() : $repo->posts('published', (int) $category['id'], $members, null, null, $page, fieldFilters: $filterState['filters']), 'page' => $page, 'total_pages' => $totalPages));
             return;
         }
         if (preg_match('#^/tag/([a-z0-9-]+)$#D', $path, $match)) {
