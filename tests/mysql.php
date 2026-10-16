@@ -11,6 +11,7 @@ require dirname(__DIR__) . '/autoload.php';
 
 use FangdaysCMS\Cms\ContentRepository;
 use FangdaysCMS\Cms\ContentModelRepository;
+use FangdaysCMS\Cms\ContentSearch;
 use FangdaysCMS\Cms\Database;
 use FangdaysCMS\Cms\Installer;
 use FangdaysCMS\Cms\TagRepository;
@@ -82,6 +83,14 @@ try {
     $filters = $models->categoryFilters($category, array('ext_color' => '红色', 'ext_size' => 'S'));
     if ($repo->countPosts('published', $category, true, fieldFilters: $filters['filters']) !== 1 || (int) $repo->posts('published', $category, true, fieldFilters: $filters['filters'])[0]['id'] !== $post) {
         throw new RuntimeException('MySQL combined model field filters failed.');
+    }
+    $search = ContentSearch::parse($pdo, $repo, array('keyword' => '红色', 'field' => 'ext_color', 'ext_size' => 'S', 'scode' => (string) $category));
+    if ($repo->countPosts('published', null, true, search: $search['criteria']) !== 1 || (int) $repo->posts('published', null, true, search: $search['criteria'])[0]['id'] !== $post) {
+        throw new RuntimeException('MySQL compound search failed.');
+    }
+    $wrongSize = ContentSearch::parse($pdo, $repo, array('ext_size' => 'XS', 'title' => 'MySQL'));
+    if ($repo->countPosts('published', null, true, search: $wrongSize['criteria']) !== 0) {
+        throw new RuntimeException('MySQL multi-choice search matched the wrong option.');
     }
     $childCategory = $repo->saveCategory(null, '子栏目', 'mysql-child', 2, $category);
     $childPost = $repo->savePost(null, $childCategory, '层级文章', 'mysql-nested-post', '正文', 'published');

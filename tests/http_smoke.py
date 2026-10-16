@@ -489,6 +489,16 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         assert "第一篇文章" in request("/admin/posts?feature=top")[1]
         assert "会员专享" not in request("/admin/posts?feature=top")[1]
         assert "第一篇文章" in request("/search?q=%E7%BC%96%E8%BE%91%E9%83%A8")[1]
+        assert '<h3 class="h5 mb-0"><a' in request("/search?keyword=%E7%AC%AC%E4%B8%80%E7%AF%87%E6%96%87%E7%AB%A0")[1]
+        assert "第一篇文章" not in request("/search?keyword=%E7%BA%A2%E8%89%B2")[1]
+        status, advanced_search = request("/search?keyword=%E7%BA%A2%E8%89%B2&field=ext_color&ext_size=S&scode=1")
+        assert status == 200 and "第一篇文章" in advanced_search and 'name="ext_size"' in advanced_search
+        assert "第一篇文章" not in request("/search?keyword=%E7%BA%A2%E8%89%B2&field=ext_color&ext_size=XS&scode=1")[1]
+        assert "第一篇文章" in request("/search?title=%E7%AC%AC%E4%B8%80%E7%AF%87&author=%E7%BC%96%E8%BE%91%E9%83%A8")[1]
+        invalid_search = request("/search?scode=999999")[1]
+        assert "搜索条件无效" in invalid_search and "第一篇文章" not in invalid_search
+        anonymous = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        assert '<h3 class="h5 mb-0"><a' not in request("/search?keyword=%E4%BC%9A%E5%91%98%E4%B8%93%E4%BA%AB", client=anonymous)[1]
         status, invalid_color = request("/admin/posts/1/edit", update | {"title_color": "red<script>"})
         assert status == 422 and "标题颜色须为" in invalid_color
         assert 'style="color:#176c73"' in request("/post/first-post")[1]

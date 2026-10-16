@@ -708,14 +708,12 @@ final class App
             return;
         }
         if ($path === '/search') {
-            $query = is_string($_GET['q'] ?? null) ? trim($_GET['q']) : '';
-            if (mb_strlen($query) > 100) {
-                $query = mb_substr($query, 0, 100);
-            }
+            $search = ContentSearch::parse($pdo, $repo, $_GET);
             $members = $base['member'] !== null;
-            $totalPages = $query === '' ? 0 : (int) ceil($repo->countPosts('published', null, $members, null, $query) / 20);
+            $canSearch = $search['active'] && ! $search['invalid'];
+            $totalPages = $canSearch ? (int) ceil($repo->countPosts('published', null, $members, null, $search['legacy_query'], search: $search['criteria']) / 20) : 0;
             $page = self::boundedPage($totalPages);
-            View::render('site/search', $base + array('page_title' => '搜索', 'query' => $query, 'posts' => $query === '' ? array() : $repo->posts('published', null, $members, null, $query, $page), 'page' => $page, 'total_pages' => $totalPages));
+            View::render('site/search', $base + array('page_title' => '搜索', 'search' => $search, 'search_categories' => $repo->categories(), 'posts' => $canSearch ? $repo->posts('published', null, $members, null, $search['legacy_query'], $page, search: $search['criteria']) : array(), 'page' => $page, 'total_pages' => $totalPages));
             return;
         }
         if (preg_match('#^/post/([a-z0-9-]+)/attachment$#D', $path, $match)) {

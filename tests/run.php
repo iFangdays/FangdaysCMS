@@ -10,6 +10,7 @@ require dirname(__DIR__) . '/autoload.php';
 
 use FangdaysCMS\Cms\ContentRepository;
 use FangdaysCMS\Cms\ContentModelRepository;
+use FangdaysCMS\Cms\ContentSearch;
 use FangdaysCMS\Cms\Database;
 use FangdaysCMS\Cms\Installer;
 use FangdaysCMS\Cms\Migrator;
@@ -94,6 +95,17 @@ try {
     check(View::postLink($repo->post($postId)) === '/search', 'Post external link failed.');
     check((int) $repo->posts('published', $categoryId)[0]['id'] === $postId, 'Pinned article did not sort first.');
     check($repo->countPosts('published', null, true, null, null, 'top') === 1 && $repo->countPosts('published', null, true, null, '编辑部') === 1, 'Post metadata filtering or search failed.');
+    $titleSearch = ContentSearch::parse($pdo, $repo, array('keyword' => '第一篇文章'));
+    check($repo->countPosts('published', null, true, search: $titleSearch['criteria']) === 1, 'Title-only keyword search failed.');
+    $oldSearch = ContentSearch::parse($pdo, $repo, array('q' => str_repeat('x', 101)));
+    check(! $oldSearch['invalid'] && mb_strlen($oldSearch['keyword']) === 100 && $oldSearch['legacy_query'] === $oldSearch['keyword'], 'Legacy q search limit changed.');
+    $contentSearch = ContentSearch::parse($pdo, $repo, array('keyword' => '子栏目内容', 'field' => 'content', 'scode' => (string) $categoryId));
+    check($repo->countPosts('published', null, true, search: $contentSearch['criteria']) === 1 && (int) $repo->posts('published', null, true, search: $contentSearch['criteria'])[0]['id'] === $nestedPost, 'Scoped content search did not include descendants.');
+    $compoundSearch = ContentSearch::parse($pdo, $repo, array('keyword' => '正文', 'field' => 'content', 'author' => '编辑部', 'scode' => $categoryId . ',' . $grandchildCategory));
+    check($repo->countPosts('published', null, true, search: $compoundSearch['criteria']) === 1 && str_contains(View::pagination(1, 2, '/search', $compoundSearch['params']), 'scode=' . $categoryId . '%2C' . $grandchildCategory), 'Compound search or pagination failed.');
+    check(ContentSearch::parse($pdo, $repo, array('scode' => '999999'))['invalid'] && ContentSearch::parse($pdo, $repo, array('keyword' => array('test')))['invalid'], 'Invalid public search parameters were accepted.');
+    $literalSearch = ContentSearch::parse($pdo, $repo, array('keyword' => '%', 'field' => 'title'));
+    check($repo->countPosts('published', null, true, search: $literalSearch['criteria']) === 0, 'Search wildcard was treated as a pattern.');
     foreach (array('javascript:alert(1)', '//example.com', '/post/first-post') as $unsafeLink) {
         try {
             $repo->savePostMeta($postId, array('outlink' => $unsafeLink));
@@ -177,6 +189,10 @@ try {
     check($repo->countPosts('draft', $productCategory, true, fieldFilters: $sizeOnly['filters']) === 1, 'Multi choice filtering matched XS for S.');
     check($models->categoryFilters($productCategory, array('ext_color' => '未定义'))['invalid'] === true, 'Invalid field option was not rejected.');
     check($models->categoryFilters($productCategory, array('ext_color' => array('红色')))['invalid'] === true, 'Array-valued field filter was not rejected.');
+    $modelSearch = ContentSearch::parse($pdo, $repo, array('keyword' => '红色', 'field' => 'ext_color', 'ext_sizes' => 'S', 'scode' => (string) $productCategory));
+    check($repo->countPosts('draft', null, true, search: $modelSearch['criteria']) === 1 && (int) $repo->posts('draft', null, true, search: $modelSearch['criteria'])[0]['id'] === $productPost, 'Model field compound search failed.');
+    $wrongSizeSearch = ContentSearch::parse($pdo, $repo, array('ext_sizes' => 'XS', 'title' => '测试产品'));
+    check($repo->countPosts('draft', null, true, search: $wrongSizeSearch['criteria']) === 0, 'Model multi-choice search matched the wrong option.');
     $repo->deletePost($xsPost);
     $productSingle = $repo->saveCategory(null, '产品介绍', 'product-about', 3);
     $repo->saveCategorySettings($productSingle, 'single', '', '', '', '');
@@ -219,6 +235,7 @@ try {
     check($models->field($colorField)['label'] === '商品颜色', 'Model field update failed.');
     $models->bindCategory($productCategory, (int) $models->defaultModel()['id']);
     check($repo->countPosts('draft', $productCategory, true, fieldFilters: $filterState['filters']) === 0, 'Old model values remained searchable after category model changed.');
+    check($repo->countPosts('draft', null, true, search: $modelSearch['criteria']) === 0, 'Old model values remained in compound search after model change.');
     $models->deleteModel($productModel);
     check($models->model($productModel) === null && $models->valuesForPost($productPost) === array(), 'Model deletion did not clear field definitions and values.');
     $tags = new TagRepository($pdo);
