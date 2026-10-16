@@ -59,14 +59,31 @@ final class MediaRepository
 
     public function setCover(int $postId, ?int $mediaId): void
     {
+        $this->replaceCover('post_cover', 'post_id', $postId, $mediaId);
+    }
+
+    public function coverForCategory(int $categoryId): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT m.id, m.path, m.original_name FROM category_cover c JOIN media m ON m.id = c.media_id WHERE c.category_id = ?');
+        $stmt->execute(array($categoryId));
+        return $stmt->fetch() ?: null;
+    }
+
+    public function setCoverForCategory(int $categoryId, ?int $mediaId): void
+    {
+        $this->replaceCover('category_cover', 'category_id', $categoryId, $mediaId);
+    }
+
+    private function replaceCover(string $table, string $key, int $id, ?int $mediaId): void
+    {
         if ($mediaId !== null && $this->byId($mediaId) === null) {
             throw new InvalidArgumentException('封面图片不存在。');
         }
-        $stmt = $this->pdo->prepare('DELETE FROM post_cover WHERE post_id = ?');
-        $stmt->execute(array($postId));
+        $stmt = $this->pdo->prepare('DELETE FROM ' . $table . ' WHERE ' . $key . ' = ?');
+        $stmt->execute(array($id));
         if ($mediaId !== null) {
-            $stmt = $this->pdo->prepare('INSERT INTO post_cover (post_id, media_id) VALUES (?, ?)');
-            $stmt->execute(array($postId, $mediaId));
+            $stmt = $this->pdo->prepare('INSERT INTO ' . $table . ' (' . $key . ', media_id) VALUES (?, ?)');
+            $stmt->execute(array($id, $mediaId));
         }
     }
 
@@ -79,22 +96,39 @@ final class MediaRepository
 
     public function setGallery(int $postId, array $ids, array $titles): void
     {
+        $this->replaceGallery('post_gallery', 'post_id', $postId, $ids, $titles);
+    }
+
+    public function galleryForCategory(int $categoryId): array
+    {
+        $stmt = $this->pdo->prepare('SELECT g.media_id, g.title, m.path, m.original_name FROM category_gallery g JOIN media m ON m.id = g.media_id WHERE g.category_id = ? ORDER BY g.position');
+        $stmt->execute(array($categoryId));
+        return $stmt->fetchAll();
+    }
+
+    public function setGalleryForCategory(int $categoryId, array $ids, array $titles): void
+    {
+        $this->replaceGallery('category_gallery', 'category_id', $categoryId, $ids, $titles);
+    }
+
+    private function replaceGallery(string $table, string $key, int $id, array $ids, array $titles): void
+    {
         if (count($ids) > 30 || count($ids) !== count($titles)) {
             throw new InvalidArgumentException('多图最多 30 张，图片和标题必须一一对应。');
         }
         $items = array();
-        foreach ($ids as $position => $id) {
-            if (! is_string($id) || ! ctype_digit($id) || (int) $id < 1 || isset($items[(int) $id]) || ! is_string($titles[$position]) || mb_strlen($titles[$position]) > 150 || $this->byId((int) $id) === null) {
+        foreach ($ids as $position => $mediaId) {
+            if (! is_string($mediaId) || ! ctype_digit($mediaId) || (int) $mediaId < 1 || isset($items[(int) $mediaId]) || ! is_string($titles[$position]) || mb_strlen($titles[$position]) > 150 || $this->byId((int) $mediaId) === null) {
                 throw new InvalidArgumentException('多图包含无效、重复或不存在的图片。');
             }
-            $items[(int) $id] = trim($titles[$position]);
+            $items[(int) $mediaId] = trim($titles[$position]);
         }
-        $stmt = $this->pdo->prepare('DELETE FROM post_gallery WHERE post_id = ?');
-        $stmt->execute(array($postId));
-        $stmt = $this->pdo->prepare('INSERT INTO post_gallery (post_id, position, media_id, title) VALUES (?, ?, ?, ?)');
+        $stmt = $this->pdo->prepare('DELETE FROM ' . $table . ' WHERE ' . $key . ' = ?');
+        $stmt->execute(array($id));
+        $stmt = $this->pdo->prepare('INSERT INTO ' . $table . ' (' . $key . ', position, media_id, title) VALUES (?, ?, ?, ?)');
         $position = 0;
-        foreach ($items as $id => $title) {
-            $stmt->execute(array($postId, $position++, $id, $title));
+        foreach ($items as $mediaId => $title) {
+            $stmt->execute(array($id, $position++, $mediaId, $title));
         }
     }
 
@@ -113,6 +147,13 @@ final class MediaRepository
         $stmt->execute(array($id));
         if ((int) $stmt->fetchColumn() > 0) {
             throw new InvalidArgumentException('图片正被文章多图使用。');
+        }
+        foreach (array('category_cover' => '栏目单页封面', 'category_gallery' => '栏目单页多图') as $table => $label) {
+            $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM ' . $table . ' WHERE media_id = ?');
+            $stmt->execute(array($id));
+            if ((int) $stmt->fetchColumn() > 0) {
+                throw new InvalidArgumentException('图片正被' . $label . '使用。');
+            }
         }
         foreach (array('slides' => '轮播图', 'friend_links' => '友情链接') as $table => $label) {
             $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM ' . $table . ' WHERE media_id = ?');

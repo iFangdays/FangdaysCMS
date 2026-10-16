@@ -253,6 +253,11 @@ final class App
             $model = $models->modelForCategory($id);
             $fields = $models->fields((int) $model['id']);
             $extraValues = $models->valuesForSingleCategory($id);
+            $media = new MediaRepository($pdo, $this->root . '/public');
+            $attachments = new AttachmentRepository($pdo, $this->root . '/var');
+            $cover = $media->coverForCategory($id);
+            $gallery = $media->galleryForCategory($id);
+            $attachment = $attachments->forCategory($id);
             if ($method === 'POST') {
                 $this->requireCsrf();
                 $category['single_title'] = self::postString('title');
@@ -260,24 +265,64 @@ final class App
                 $category['single_body_format'] = self::postString('body_format') ?: $category['single_body_format'];
                 $category['single_status'] = self::postString('status');
                 $extraValues = $_POST['extra'] ?? array();
+                $category['cover_media_id'] = self::postString('cover_media_id');
+                $rawGalleryIds = $_POST['gallery_media_ids'] ?? array();
+                $rawGalleryTitles = $_POST['gallery_titles'] ?? array();
+                $uploadFile = is_array($_FILES['attachment'] ?? null) ? $_FILES['attachment'] : array();
                 try {
                     if (! is_array($extraValues)) {
                         throw new InvalidArgumentException('扩展字段内容无效。');
                     }
+                    $coverId = $category['cover_media_id'] === '' ? null : filter_var($category['cover_media_id'], FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
+                    if ($coverId === false) {
+                        throw new InvalidArgumentException('封面图片无效。');
+                    }
+                    if (! is_array($rawGalleryIds) || ! is_array($rawGalleryTitles) || count($rawGalleryIds) !== count($rawGalleryTitles) || count($rawGalleryIds) > 30) {
+                        throw new InvalidArgumentException('多图数据无效。');
+                    }
+                    $galleryIds = array();
+                    $galleryTitles = array();
+                    $gallery = array();
+                    foreach ($rawGalleryIds as $position => $galleryId) {
+                        if (! is_string($galleryId) || ! isset($rawGalleryTitles[$position]) || ! is_string($rawGalleryTitles[$position])) {
+                            throw new InvalidArgumentException('多图数据无效。');
+                        }
+                        if ($galleryId === '' && $rawGalleryTitles[$position] === '') {
+                            continue;
+                        }
+                        $galleryIds[] = $galleryId;
+                        $galleryTitles[] = $rawGalleryTitles[$position];
+                        $image = ctype_digit($galleryId) ? $media->byId((int) $galleryId) : null;
+                        $gallery[] = array('media_id' => $galleryId, 'title' => $rawGalleryTitles[$position], 'path' => $image['path'] ?? '');
+                    }
+                    $hasUpload = $uploadFile !== array() && ($uploadFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
+                    if ($hasUpload) {
+                        $attachments->validateUpload($uploadFile);
+                    }
                     $pdo->beginTransaction();
                     $repo->saveSingle($id, $category['single_title'], $category['single_body'], $category['single_status'], $category['single_body_format']);
                     $models->setValuesForSingleCategory($id, $extraValues);
+                    $media->setCoverForCategory($id, $coverId);
+                    $media->setGalleryForCategory($id, $galleryIds, $galleryTitles);
+                    $oldFile = null;
+                    if ($hasUpload) {
+                        $oldFile = $attachments->replaceForCategory($id, $uploadFile);
+                    } elseif (self::postString('remove_attachment') === '1') {
+                        $oldFile = $attachments->removeForCategory($id);
+                    }
                     $pdo->commit();
+                    $attachments->deleteFile($oldFile);
                     $_SESSION['flash'] = '单页栏目内容已保存。';
                     $this->redirect('/admin/categories/' . $id . '/single');
-                } catch (InvalidArgumentException $error) {
+                } catch (InvalidArgumentException|\RuntimeException $error) {
                     if ($pdo->inTransaction()) {
                         $pdo->rollBack();
                     }
-                    View::render('admin/category-single', $base + array('page_title' => '编辑单页栏目', 'category' => $category, 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'model' => $model, 'fields' => $fields, 'extra_values' => is_array($extraValues) ? $extraValues : array(), 'error' => $error->getMessage()), 422);
+                    View::render('admin/category-single', $base + array('page_title' => '编辑单页栏目', 'category' => $category, 'media' => self::mediaOptionsForSelection($media, array_merge(array($category['cover_media_id']), array_column($gallery, 'media_id'))), 'gallery' => $gallery, 'attachment' => $attachment, 'model' => $model, 'fields' => $fields, 'extra_values' => is_array($extraValues) ? $extraValues : array(), 'error' => $error->getMessage()), 422);
                 }
             } elseif ($method === 'GET') {
-                View::render('admin/category-single', $base + array('page_title' => '编辑单页栏目', 'category' => $category, 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'model' => $model, 'fields' => $fields, 'extra_values' => $extraValues, 'error' => null));
+                $category['cover_media_id'] = $cover['id'] ?? '';
+                View::render('admin/category-single', $base + array('page_title' => '编辑单页栏目', 'category' => $category, 'media' => self::mediaOptionsForSelection($media, array_merge(array($category['cover_media_id']), array_column($gallery, 'media_id'))), 'gallery' => $gallery, 'attachment' => $attachment, 'model' => $model, 'fields' => $fields, 'extra_values' => $extraValues, 'error' => null));
             } else {
                 $this->notFound();
             }
@@ -301,7 +346,10 @@ final class App
         if (preg_match('#^/admin/categories/([1-9][0-9]*)/delete$#D', $path, $match) && $method === 'POST') {
             $this->requireCsrf();
             try {
+                $attachments = new AttachmentRepository($pdo, $this->root . '/var');
+                $oldFile = $attachments->forCategory((int) $match[1])['path'] ?? null;
                 $repo->deleteCategory((int) $match[1]);
+                $attachments->deleteFile($oldFile);
                 $_SESSION['flash'] = '栏目已删除，原文章保留。';
             } catch (InvalidArgumentException $error) {
                 $_SESSION['flash'] = '操作失败：' . $error->getMessage();
@@ -555,13 +603,23 @@ final class App
 
     private static function operationMediaOptions(MediaRepository $media, mixed $selected): array
     {
+        return self::mediaOptionsForSelection($media, array($selected));
+    }
+
+    private static function mediaOptionsForSelection(MediaRepository $media, array $selected): array
+    {
         $items = $media->all();
-        if (is_string($selected) || is_int($selected)) {
-            $id = filter_var($selected, FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
-            if ($id !== false && ! in_array($id, array_map('intval', array_column($items, 'id')), true)) {
+        $known = array_fill_keys(array_map('intval', array_column($items, 'id')), true);
+        foreach ($selected as $value) {
+            if (! is_string($value) && ! is_int($value)) {
+                continue;
+            }
+            $id = filter_var($value, FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
+            if ($id !== false && ! isset($known[$id])) {
                 $older = $media->byId($id);
                 if ($older !== null) {
                     array_unshift($items, $older);
+                    $known[$id] = true;
                 }
             }
         }
@@ -673,6 +731,23 @@ final class App
             View::render('site/home', $base + array('page_title' => '首页', 'slides' => (new OperationsRepository($pdo))->slides(1, 20), 'categories' => $repo->rootCategories(), 'tags' => $tags->all(), 'posts' => $repo->posts('published', null, $members, null, null, $page), 'page' => $page, 'total_pages' => $totalPages));
             return;
         }
+        if (preg_match('#^/category/([a-z0-9-]+)/attachment$#D', $path, $match)) {
+            $category = $repo->categoryBySlug($match[1]);
+            if ($category === null || $category['type'] !== 'single' || $category['single_status'] !== 'published') {
+                $this->notFound();
+            }
+            $attachments = new AttachmentRepository($pdo, $this->root . '/var');
+            $attachment = $attachments->forCategory((int) $category['id']);
+            if ($attachment === null) {
+                $this->notFound();
+            }
+            try {
+                $attachments->send($attachment);
+            } catch (\RuntimeException $error) {
+                $this->notFound();
+            }
+            return;
+        }
         if (preg_match('#^/category/([a-z0-9-]+)$#D', $path, $match)) {
             $category = $repo->categoryBySlug($match[1]);
             if ($category === null) {
@@ -686,7 +761,8 @@ final class App
                 if ($category['single_status'] !== 'published') {
                     $this->notFound();
                 }
-                View::render('site/category-single', $base + array('page_title' => $category['name'], 'seo_title' => $category['seo_title'], 'seo_keywords' => $category['seo_keywords'], 'seo_description' => $category['seo_description'], 'category' => $category, 'breadcrumb' => $repo->categoryAncestors((int) $category['id']), 'extra_fields' => (new ContentModelRepository($pdo))->publicFieldsForSingleCategory((int) $category['id'])));
+                $media = new MediaRepository($pdo, $this->root . '/public');
+                View::render('site/category-single', $base + array('page_title' => $category['name'], 'seo_title' => $category['seo_title'], 'seo_keywords' => $category['seo_keywords'], 'seo_description' => $category['seo_description'], 'category' => $category, 'breadcrumb' => $repo->categoryAncestors((int) $category['id']), 'cover' => $media->coverForCategory((int) $category['id']), 'gallery' => $media->galleryForCategory((int) $category['id']), 'attachment' => (new AttachmentRepository($pdo, $this->root . '/var'))->forCategory((int) $category['id']), 'extra_fields' => (new ContentModelRepository($pdo))->publicFieldsForSingleCategory((int) $category['id'])));
                 return;
             }
             $members = $base['member'] !== null;

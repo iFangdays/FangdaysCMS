@@ -93,7 +93,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             },
         )
         assert status == 200 and "后台登录" in login, login[:400]
-        assert "schema version 15 is ready" in command(site / "bin/migrate.php")
+        assert "schema version 16 is ready" in command(site / "bin/migrate.php")
         status, unlicensed = request("/")
         assert status == 503 and "尚未获得有效授权" in unlicensed
 
@@ -713,14 +713,43 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         assert "company-intro" not in request("/")[1]
         status, single_edit = request(f"/admin/categories/{single_id}/single")
         assert status == 200 and "编辑此栏目的单页正文" in single_edit and 'id="single-editor"' in single_edit
+        assert 'enctype="multipart/form-data"' in single_edit and 'name="cover_media_id"' in single_edit and 'id="gallery-add"' in single_edit and 'name="attachment"' in single_edit
         assert request(f"/admin/categories/{single_id}/single", client=reviewer)[0] == 403
         status, saved_single = request(f"/admin/categories/{single_id}/single", {
             "_csrf": csrf(single_edit), "title": "我们的公司",
             "body": "单页内容 <script>alert(1)</script>", "status": "published",
+            "cover_media_id": image_id, "gallery_media_ids[]": [image_id, editor_image["id"]],
+            "gallery_titles[]": ["单页封面", "单页内景"],
         })
         assert status == 200 and "单页栏目内容已保存" in saved_single
         status, public_single = request("/category/company-intro")
         assert status == 200 and "我们的公司" in public_single
+        assert 'aria-label="单页多图"' in public_single and "单页封面" in public_single and "单页内景" in public_single
+        assert f'src="{editor_image["path"]}"' in public_single
+        status, duplicate_single_gallery = request(f"/admin/categories/{single_id}/single", {
+            "_csrf": csrf(saved_single), "title": "我们的公司", "body": "不能覆盖", "status": "published",
+            "gallery_media_ids[]": [image_id, image_id], "gallery_titles[]": ["一", "二"],
+        })
+        assert status == 422 and "多图包含无效、重复" in duplicate_single_gallery
+        assert "不能覆盖" not in request("/category/company-intro")[1]
+        single_parts = b"".join((f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n').encode() for key, value in {
+            "_csrf": csrf(saved_single), "title": "我们的公司", "body": "附件内容", "status": "published",
+            "cover_media_id": image_id, "gallery_media_ids[]": editor_image["id"], "gallery_titles[]": "单页内景",
+        }.items())
+        single_parts += (f'--{boundary}\r\nContent-Disposition: form-data; name="attachment"; filename="company.pdf"\r\nContent-Type: application/pdf\r\n\r\n').encode() + pdf + f'\r\n--{boundary}--\r\n'.encode()
+        with opener.open(urllib.request.Request(base + f"/admin/categories/{single_id}/single", data=single_parts, headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}), timeout=5) as response:
+            assert "单页栏目内容已保存" in response.read().decode("utf-8")
+        assert "下载附件：company.pdf" in request("/category/company-intro")[1]
+        with opener.open(base + "/category/company-intro/attachment", timeout=5) as response:
+            assert response.read() == pdf and response.headers["X-Content-Type-Options"] == "nosniff"
+        invalid_single_upload = single_parts.replace(b'filename="company.pdf"', b'filename="danger.php"').replace(pdf, b'<?php echo 1;')
+        try:
+            opener.open(urllib.request.Request(base + f"/admin/categories/{single_id}/single", data=invalid_single_upload, headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}), timeout=5)
+            raise AssertionError("Executable single-page attachment was accepted")
+        except urllib.error.HTTPError as error:
+            assert error.code == 422 and "附件格式无效" in error.read().decode("utf-8")
+        with opener.open(base + "/category/company-intro/attachment", timeout=5) as response:
+            assert response.read() == pdf
         assert "&lt;script&gt;" in public_single and "<script>alert(1)</script>" not in public_single
         assert '<title>公司介绍专属标题</title>' in public_single
         assert 'name="keywords" content="公司,介绍"' in public_single
@@ -730,11 +759,14 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             "_csrf": csrf(saved_single), "title": "我们的公司", "body": "暂存内容", "status": "draft",
         })
         assert status == 200 and request("/category/company-intro")[0] == 404
+        assert request("/category/company-intro/attachment")[0] == 404
         assert "company-intro" not in request("/")[1]
         status, republished_single = request(f"/admin/categories/{single_id}/single", {
             "_csrf": csrf(draft_single), "title": "我们的公司", "body": "重新发布", "status": "published",
         })
         assert status == 200 and "重新发布" in request("/category/company-intro")[1]
+        with opener.open(base + "/category/company-intro/attachment", timeout=5) as response:
+            assert response.read() == pdf
         status, rich_single = request(f"/admin/categories/{single_id}/single", {
             "_csrf": csrf(republished_single), "title": "我们的公司",
             "body": "<p><strong>栏目富文本</strong><script>alert(1)</script></p>",
@@ -743,6 +775,11 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         assert status == 200
         single_html = request("/category/company-intro")[1]
         assert "<strong>栏目富文本</strong>" in single_html and "<script>alert(1)</script>" not in single_html
+        status, removed_single_attachment = request(f"/admin/categories/{single_id}/single", {
+            "_csrf": csrf(rich_single), "title": "我们的公司", "body": "栏目富文本", "status": "published", "remove_attachment": "1",
+        })
+        assert status == 200 and "单页栏目内容已保存" in removed_single_attachment
+        assert request("/category/company-intro/attachment")[0] == 404
 
         status, link_form = request("/admin/categories/new")
         status, invalid_link = request("/admin/categories", {

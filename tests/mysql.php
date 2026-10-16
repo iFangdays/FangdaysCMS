@@ -254,6 +254,14 @@ try {
     if ((int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'category_field_values'")->fetchColumn() !== 1 || $repo->category($singleCategoryId)['single_body_format'] !== 'html') {
         throw new RuntimeException('MySQL upgrade from schema version 14 lost single-page content or field table.');
     }
+    $pdo->exec('DROP TABLE category_cover');
+    $pdo->exec('DROP TABLE category_gallery');
+    $pdo->exec('DROP TABLE category_attachment');
+    $pdo->exec('UPDATE cms_schema SET version = 15 WHERE id = 1');
+    \FangdaysCMS\Cms\Migrator::ensure($pdo);
+    if ((int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN ('category_cover', 'category_gallery', 'category_attachment')")->fetchColumn() !== 3 || $repo->category($singleCategoryId)['single_body_format'] !== 'html') {
+        throw new RuntimeException('MySQL upgrade from schema version 15 lost single-page content or media tables.');
+    }
     echo "FangdaysCMS MySQL schema, content operations, membership, and roles passed\n";
 } finally {
     $pdo->exec('DROP TABLE IF EXISTS slides');
@@ -270,6 +278,9 @@ try {
     $pdo->exec('DROP TABLE IF EXISTS post_cover');
     $pdo->exec('DROP TABLE IF EXISTS post_gallery');
     $pdo->exec('DROP TABLE IF EXISTS post_attachment');
+    $pdo->exec('DROP TABLE IF EXISTS category_cover');
+    $pdo->exec('DROP TABLE IF EXISTS category_gallery');
+    $pdo->exec('DROP TABLE IF EXISTS category_attachment');
     $pdo->exec('DROP TABLE IF EXISTS media');
     $pdo->exec('DROP TABLE IF EXISTS site_settings');
     $pdo->exec('DROP TABLE IF EXISTS pages');

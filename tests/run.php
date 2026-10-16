@@ -515,6 +515,28 @@ try {
         check(str_contains($error->getMessage(), '多图'), 'Gallery image deletion failed for the wrong reason.');
     }
     check($repo->publishedPostBySlug('first-post')['cover_path'] !== null, 'Post cover relation failed.');
+    $singleMediaCategory = $repo->saveCategory(null, '媒体单页', 'media-single', 8);
+    $pdo->exec("INSERT INTO media (path, original_name, mime_type, bytes, created_at) VALUES ('/uploads/2026/10/22222222222222222222222222222222.png', 'single.png', 'image/png', 100, 1)");
+    $singleMediaId = (int) $pdo->lastInsertId();
+    $media->setCoverForCategory($singleMediaCategory, $singleMediaId);
+    $media->setGalleryForCategory($singleMediaCategory, array((string) $singleMediaId), array('单页图一'));
+    check($media->coverForCategory($singleMediaCategory)['path'] === '/uploads/2026/10/22222222222222222222222222222222.png' && $media->galleryForCategory($singleMediaCategory)[0]['title'] === '单页图一', 'Single category media was not saved.');
+    try {
+        $media->delete($singleMediaId);
+        throw new RuntimeException('Single category cover was deleted while in use.');
+    } catch (InvalidArgumentException $error) {
+        check(str_contains($error->getMessage(), '栏目单页封面'), 'Single category cover guard failed.');
+    }
+    $media->setCoverForCategory($singleMediaCategory, null);
+    try {
+        $media->delete($singleMediaId);
+        throw new RuntimeException('Single category gallery image was deleted while in use.');
+    } catch (InvalidArgumentException $error) {
+        check(str_contains($error->getMessage(), '栏目单页多图'), 'Single category gallery guard failed.');
+    }
+    $media->setGalleryForCategory($singleMediaCategory, array(), array());
+    $repo->deleteCategory($singleMediaCategory);
+    $media->delete($singleMediaId);
     $transferCategory = $repo->saveCategory(null, '复制目标', 'transfer-target', 4);
     check($repo->transferPosts(array((string) $postId), 'copy', $transferCategory) === 1, 'Article copy failed.');
     $copy = $repo->publishedPostBySlug('first-post-copy');

@@ -17,8 +17,18 @@ final class AttachmentRepository
 
     public function forPost(int $postId): ?array
     {
-        $stmt = $this->pdo->prepare('SELECT path, original_name, bytes FROM post_attachment WHERE post_id = ?');
-        $stmt->execute(array($postId));
+        return $this->forOwner('post_attachment', 'post_id', $postId);
+    }
+
+    public function forCategory(int $categoryId): ?array
+    {
+        return $this->forOwner('category_attachment', 'category_id', $categoryId);
+    }
+
+    private function forOwner(string $table, string $key, int $id): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT path, original_name, bytes FROM ' . $table . ' WHERE ' . $key . ' = ?');
+        $stmt->execute(array($id));
         return $stmt->fetch() ?: null;
     }
 
@@ -53,6 +63,16 @@ final class AttachmentRepository
 
     public function replace(int $postId, array $file): ?string
     {
+        return $this->replaceForOwner('post_attachment', 'post_id', $postId, $file);
+    }
+
+    public function replaceForCategory(int $categoryId, array $file): ?string
+    {
+        return $this->replaceForOwner('category_attachment', 'category_id', $categoryId, $file);
+    }
+
+    private function replaceForOwner(string $table, string $key, int $id, array $file): ?string
+    {
         $this->validateUpload($file);
         $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
         $path = bin2hex(random_bytes(16)) . '.' . $extension;
@@ -65,14 +85,14 @@ final class AttachmentRepository
             throw new RuntimeException('无法保存附件。');
         }
         chmod($destination, 0600);
-        $old = $this->forPost($postId);
+        $old = $this->forOwner($table, $key, $id);
         try {
-            $stmt = $this->pdo->prepare('DELETE FROM post_attachment WHERE post_id = ?');
-            $stmt->execute(array($postId));
+            $stmt = $this->pdo->prepare('DELETE FROM ' . $table . ' WHERE ' . $key . ' = ?');
+            $stmt->execute(array($id));
             $name = mb_substr(basename(str_replace('\\', '/', $file['name'])), 0, 150);
             $name = preg_replace('/[\x00-\x1f\x7f]/', '', $name) ?: 'attachment.' . $extension;
-            $stmt = $this->pdo->prepare('INSERT INTO post_attachment (post_id, path, original_name, bytes) VALUES (?, ?, ?, ?)');
-            $stmt->execute(array($postId, $path, $name, $file['size']));
+            $stmt = $this->pdo->prepare('INSERT INTO ' . $table . ' (' . $key . ', path, original_name, bytes) VALUES (?, ?, ?, ?)');
+            $stmt->execute(array($id, $path, $name, $file['size']));
         } catch (\Throwable $error) {
             unlink($destination);
             throw $error;
@@ -82,9 +102,19 @@ final class AttachmentRepository
 
     public function remove(int $postId): ?string
     {
-        $old = $this->forPost($postId);
-        $stmt = $this->pdo->prepare('DELETE FROM post_attachment WHERE post_id = ?');
-        $stmt->execute(array($postId));
+        return $this->removeForOwner('post_attachment', 'post_id', $postId);
+    }
+
+    public function removeForCategory(int $categoryId): ?string
+    {
+        return $this->removeForOwner('category_attachment', 'category_id', $categoryId);
+    }
+
+    private function removeForOwner(string $table, string $key, int $id): ?string
+    {
+        $old = $this->forOwner($table, $key, $id);
+        $stmt = $this->pdo->prepare('DELETE FROM ' . $table . ' WHERE ' . $key . ' = ?');
+        $stmt->execute(array($id));
         return $old['path'] ?? null;
     }
 
@@ -92,6 +122,11 @@ final class AttachmentRepository
     {
         if ($path !== null && preg_match('/^[a-f0-9]{32}\.(pdf|txt|zip|docx|xlsx|pptx)$/D', $path)) {
             $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM post_attachment WHERE path = ?');
+            $stmt->execute(array($path));
+            if ((int) $stmt->fetchColumn() > 0) {
+                return;
+            }
+            $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM category_attachment WHERE path = ?');
             $stmt->execute(array($path));
             if ((int) $stmt->fetchColumn() > 0) {
                 return;
