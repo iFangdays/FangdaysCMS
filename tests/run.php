@@ -11,6 +11,7 @@ require dirname(__DIR__) . '/autoload.php';
 use FangdaysCMS\Cms\ContentRepository;
 use FangdaysCMS\Cms\ContentModelRepository;
 use FangdaysCMS\Cms\ContentSearch;
+use FangdaysCMS\Cms\ContentFilterTags;
 use FangdaysCMS\Cms\Database;
 use FangdaysCMS\Cms\Installer;
 use FangdaysCMS\Cms\Migrator;
@@ -184,6 +185,10 @@ try {
     $models->setValuesForPost($xsPost, $productCategory, array($colorField => '蓝色', $sizeField => array('XS')));
     $filterState = $models->categoryFilters($productCategory, array('ext_color' => '红色', 'ext_sizes' => 'S', 'ignored' => 'anything'));
     check(count($filterState['filters']) === 2 && $filterState['params'] === array('ext_color' => '红色', 'ext_sizes' => 'S') && $repo->countPosts('draft', $productCategory, true, fieldFilters: $filterState['filters']) === 1 && (int) $repo->posts('draft', $productCategory, true, fieldFilters: $filterState['filters'])[0]['id'] === $productPost, 'Combined model field filters failed.');
+    $filterLinks = View::pbootFilterFragment('category-filter-row', $filterState['fields'], '/category/products', $filterState['params'] + array('page' => 3), 'ext_color');
+    check(str_contains($filterLinks, 'href="/category/products?ext_sizes=S"') && str_contains($filterLinks, 'ext_sizes=S&amp;ext_color=%E7%BA%A2%E8%89%B2') && str_contains($filterLinks, 'aria-current="true">红色</a>') && ! str_contains($filterLinks, 'page=3') && ! str_contains($filterLinks, '{pboot:'), 'Pboot select tags did not render links, current state or clean pagination.');
+    $unsafeOption = ContentFilterTags::html('{pboot:select field=ext_x}<span>[select:value]</span>{/pboot:select}', array(array('name' => 'ext_x', 'field_type' => 'select', 'current' => '', 'options' => array('<script>{/pboot:select}</script>'))), '/category/products');
+    check($unsafeOption === '<span>&lt;script&gt;{/pboot:select}&lt;/script&gt;</span>', 'Stored filter option changed template parsing or escaped HTML.');
     check(str_contains(View::pagination(1, 2, '/category/products', $filterState['params']), 'ext_sizes=S&amp;page=2'), 'Filtered category pagination lost its conditions.');
     $sizeOnly = $models->categoryFilters($productCategory, array('ext_sizes' => 'S'));
     check($repo->countPosts('draft', $productCategory, true, fieldFilters: $sizeOnly['filters']) === 1, 'Multi choice filtering matched XS for S.');

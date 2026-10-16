@@ -477,6 +477,9 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         assert status == 200 and "颜色" in product_article and "红色" in product_article
         status, filtered_products = request("/category/news?ext_color=%E7%BA%A2%E8%89%B2&ext_size=S")
         assert status == 200 and "筛选内容" in filtered_products and "第一篇文章" in filtered_products
+        assert 'href="/category/news?ext_size=S"' in filtered_products
+        assert 'ext_size=S&amp;ext_color=%E7%BA%A2%E8%89%B2' in filtered_products
+        assert 'aria-current="true">红色</a>' in filtered_products and "{pboot:select" not in filtered_products
         assert "第一篇文章" not in request("/category/news?ext_color=%E7%BA%A2%E8%89%B2&ext_size=XS")[1]
         assert "第一篇文章" not in request("/category/news?ext_color=%E8%93%9D%E8%89%B2&ext_size=S")[1]
         invalid_filter_page = request("/category/news?ext_color=%E7%BB%BF%E8%89%B2")[1]

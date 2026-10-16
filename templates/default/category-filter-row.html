@@ -1,0 +1,2 @@
+{pboot:selectall field={{field}} text=全部 class='btn btn-sm btn-outline-secondary mr-2 mb-2' active='btn btn-sm btn-success mr-2 mb-2'}
+{pboot:select field={{field}}}<a href="[select:link]" class="btn btn-sm mr-2 mb-2 {pboot:if('[select:value]'=='[select:current]')}btn-success{else}btn-outline-secondary{/pboot:if}"{pboot:if('[select:value]'=='[select:current]')} aria-current="true"{/pboot:if}>[select:value]</a>{/pboot:select}
