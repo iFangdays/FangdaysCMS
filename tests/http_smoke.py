@@ -93,7 +93,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             },
         )
         assert status == 200 and "后台登录" in login, login[:400]
-        assert "schema version 16 is ready" in command(site / "bin/migrate.php")
+        assert "schema version 17 is ready" in command(site / "bin/migrate.php")
         status, unlicensed = request("/")
         assert status == 503 and "尚未获得有效授权" in unlicensed
 
@@ -158,9 +158,17 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         assert status == 200 and "图片正被文章封面使用" in still_media
         status, new_page = request("/admin/pages/new")
         assert status == 200 and 'id="single-editor"' in new_page and 'name="body_format"' in new_page
+        assert 'enctype="multipart/form-data"' in new_page and 'name="cover_media_id"' in new_page and 'id="gallery-add"' in new_page and 'name="attachment"' in new_page
+        status, bad_new_page = request("/admin/pages", {
+            "_csrf": csrf(new_page), "title": "坏单页", "slug": "bad-page", "body": "不能保存",
+            "status": "published", "menu_order": "10", "cover_media_id": "999999",
+        })
+        assert status == 422 and "封面图片不存在" in bad_new_page
+        assert "bad-page" not in request("/admin/pages")[1]
         status, page_list = request("/admin/pages", {
             "_csrf": csrf(new_page), "title": "关于我们", "slug": "about", "body": "站点简介",
-            "status": "published", "menu_order": "10"
+            "status": "published", "menu_order": "10", "cover_media_id": image_id,
+            "gallery_media_ids[]": image_id, "gallery_titles[]": "关于我们图片",
         })
         assert status == 200 and "关于我们" in page_list
         page_id = re.search(r'/admin/pages/(\d+)/edit', page_list).group(1)
@@ -221,17 +229,39 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         status, front = request("/")
         assert status == 200 and "第一篇文章" in front and "/page/about" in front and "自定义页脚" in front and "/uploads/" in front
         status, about = request("/page/about")
-        assert status == 200 and "站点简介" in about
+        assert status == 200 and "站点简介" in about and 'aria-label="单页多图"' in about and "关于我们图片" in about
         status, page_edit = request(f"/admin/pages/{page_id}/edit")
-        assert status == 200 and 'id="single-media-picker"' in page_edit
+        assert status == 200 and 'id="single-media-picker"' in page_edit and f'<option value="{image_id}" selected' in page_edit
         status, rich_page = request(f"/admin/pages/{page_id}/edit", {
             "_csrf": csrf(page_edit), "title": "关于我们", "slug": "about",
             "body": "<p><strong>富文本单页</strong><script>alert(1)</script></p>",
-            "body_format": "html", "status": "published", "menu_order": "10"
+            "body_format": "html", "status": "published", "menu_order": "10", "cover_media_id": image_id,
+            "gallery_media_ids[]": image_id, "gallery_titles[]": "关于我们图片",
         })
         assert status == 200 and "单页已保存" in rich_page
         public_page = request("/page/about")[1]
         assert "<strong>富文本单页</strong>" in public_page and "<script>alert(1)</script>" not in public_page
+        status, duplicate_page_gallery = request(f"/admin/pages/{page_id}/edit", {
+            "_csrf": csrf(page_edit), "title": "关于我们", "slug": "about", "body": "不应覆盖", "status": "published", "menu_order": "10",
+            "gallery_media_ids[]": [image_id, image_id], "gallery_titles[]": ["一", "二"],
+        })
+        assert status == 422 and "多图包含无效、重复" in duplicate_page_gallery
+        assert "不应覆盖" not in request("/page/about")[1]
+        page_pdf = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n"
+        page_fields = {"_csrf": csrf(page_edit), "title": "关于我们", "slug": "about", "body": "附件说明", "status": "published", "menu_order": "10", "cover_media_id": image_id}
+        page_parts = b"".join((f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n').encode() for key, value in page_fields.items())
+        page_parts += (f'--{boundary}\r\nContent-Disposition: form-data; name="attachment"; filename="about.pdf"\r\nContent-Type: application/pdf\r\n\r\n').encode() + page_pdf + f'\r\n--{boundary}--\r\n'.encode()
+        with opener.open(urllib.request.Request(base + f"/admin/pages/{page_id}/edit", data=page_parts, headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}), timeout=5) as response:
+            assert "单页已保存" in response.read().decode("utf-8")
+        assert "下载附件：about.pdf" in request("/page/about")[1]
+        with opener.open(base + "/page/about/attachment", timeout=5) as response:
+            assert response.read() == page_pdf and response.headers["X-Content-Type-Options"] == "nosniff"
+        status, page_draft = request(f"/admin/pages/{page_id}/edit", {**page_fields, "status": "draft"})
+        assert status == 200 and request("/page/about")[0] == 404 and request("/page/about/attachment")[0] == 404
+        status, page_republished = request(f"/admin/pages/{page_id}/edit", {**page_fields, "status": "published"})
+        assert status == 200 and "下载附件：about.pdf" in request("/page/about")[1]
+        status, page_attachment_removed = request(f"/admin/pages/{page_id}/edit", {**page_fields, "remove_attachment": "1"})
+        assert status == 200 and request("/page/about/attachment")[0] == 404
         assert request("/assets/theme/bootstrap.min.css")[0] == 200
         assert request("/assets/theme/aoyun.css")[0] == 200
         status, slide_form = request("/admin/slides/new")

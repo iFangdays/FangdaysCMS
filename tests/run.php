@@ -537,6 +537,27 @@ try {
     $media->setGalleryForCategory($singleMediaCategory, array(), array());
     $repo->deleteCategory($singleMediaCategory);
     $media->delete($singleMediaId);
+    $mediaPageId = $pages->save(null, '媒体独立单页', 'media-page', '正文', 'published', 20);
+    $pdo->exec("INSERT INTO media (path, original_name, mime_type, bytes, created_at) VALUES ('/uploads/2026/10/33333333333333333333333333333333.png', 'page.png', 'image/png', 100, 1)");
+    $pageMediaId = (int) $pdo->lastInsertId();
+    $media->setCoverForPage($mediaPageId, $pageMediaId);
+    $media->setGalleryForPage($mediaPageId, array((string) $pageMediaId), array('独立单页图'));
+    check($media->coverForPage($mediaPageId)['path'] === '/uploads/2026/10/33333333333333333333333333333333.png' && $media->galleryForPage($mediaPageId)[0]['title'] === '独立单页图', 'Independent page media was not saved.');
+    try {
+        $media->delete($pageMediaId);
+        throw new RuntimeException('Independent page cover was deleted while in use.');
+    } catch (InvalidArgumentException $error) {
+        check(str_contains($error->getMessage(), '独立单页封面'), 'Independent page cover guard failed.');
+    }
+    $media->setCoverForPage($mediaPageId, null);
+    try {
+        $media->delete($pageMediaId);
+        throw new RuntimeException('Independent page gallery was deleted while in use.');
+    } catch (InvalidArgumentException $error) {
+        check(str_contains($error->getMessage(), '独立单页多图'), 'Independent page gallery guard failed.');
+    }
+    $pages->delete($mediaPageId);
+    $media->delete($pageMediaId);
     $transferCategory = $repo->saveCategory(null, '复制目标', 'transfer-target', 4);
     check($repo->transferPosts(array((string) $postId), 'copy', $transferCategory) === 1, 'Article copy failed.');
     $copy = $repo->publishedPostBySlug('first-post-copy');

@@ -74,6 +74,18 @@ final class MediaRepository
         $this->replaceCover('category_cover', 'category_id', $categoryId, $mediaId);
     }
 
+    public function coverForPage(int $pageId): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT m.id, m.path, m.original_name FROM page_cover c JOIN media m ON m.id = c.media_id WHERE c.page_id = ?');
+        $stmt->execute(array($pageId));
+        return $stmt->fetch() ?: null;
+    }
+
+    public function setCoverForPage(int $pageId, ?int $mediaId): void
+    {
+        $this->replaceCover('page_cover', 'page_id', $pageId, $mediaId);
+    }
+
     private function replaceCover(string $table, string $key, int $id, ?int $mediaId): void
     {
         if ($mediaId !== null && $this->byId($mediaId) === null) {
@@ -109,6 +121,18 @@ final class MediaRepository
     public function setGalleryForCategory(int $categoryId, array $ids, array $titles): void
     {
         $this->replaceGallery('category_gallery', 'category_id', $categoryId, $ids, $titles);
+    }
+
+    public function galleryForPage(int $pageId): array
+    {
+        $stmt = $this->pdo->prepare('SELECT g.media_id, g.title, m.path, m.original_name FROM page_gallery g JOIN media m ON m.id = g.media_id WHERE g.page_id = ? ORDER BY g.position');
+        $stmt->execute(array($pageId));
+        return $stmt->fetchAll();
+    }
+
+    public function setGalleryForPage(int $pageId, array $ids, array $titles): void
+    {
+        $this->replaceGallery('page_gallery', 'page_id', $pageId, $ids, $titles);
     }
 
     private function replaceGallery(string $table, string $key, int $id, array $ids, array $titles): void
@@ -148,7 +172,7 @@ final class MediaRepository
         if ((int) $stmt->fetchColumn() > 0) {
             throw new InvalidArgumentException('图片正被文章多图使用。');
         }
-        foreach (array('category_cover' => '栏目单页封面', 'category_gallery' => '栏目单页多图') as $table => $label) {
+        foreach (array('category_cover' => '栏目单页封面', 'category_gallery' => '栏目单页多图', 'page_cover' => '独立单页封面', 'page_gallery' => '独立单页多图') as $table => $label) {
             $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM ' . $table . ' WHERE media_id = ?');
             $stmt->execute(array($id));
             if ((int) $stmt->fetchColumn() > 0) {

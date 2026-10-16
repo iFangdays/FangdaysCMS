@@ -176,7 +176,7 @@ final class App
             return;
         }
         if (str_starts_with($path, '/admin/pages')) {
-            $this->pageAdminRoute($path, $method, new PageRepository($pdo), new MediaRepository($pdo, $this->root . '/public'), $base);
+            $this->pageAdminRoute($path, $method, $pdo, new PageRepository($pdo), new MediaRepository($pdo, $this->root . '/public'), $base);
             return;
         }
         if (str_starts_with($path, '/admin/media')) {
@@ -443,18 +443,18 @@ final class App
         $this->notFound();
     }
 
-    private function pageAdminRoute(string $path, string $method, PageRepository $pages, MediaRepository $media, array $base): void
+    private function pageAdminRoute(string $path, string $method, PDO $pdo, PageRepository $pages, MediaRepository $media, array $base): void
     {
         if ($path === '/admin/pages' && $method === 'GET') {
             View::render('admin/pages', $base + array('page_title' => '单页管理', 'pages' => $pages->all()));
             return;
         }
         if ($path === '/admin/pages/new' && $method === 'GET') {
-            View::render('admin/page-form', $base + array('page_title' => '新建单页', 'page' => null, 'media' => $media->all(), 'error' => null));
+            View::render('admin/page-form', $base + array('page_title' => '新建单页', 'page' => null, 'media' => $media->all(), 'gallery' => array(), 'attachment' => null, 'error' => null));
             return;
         }
         if ($path === '/admin/pages' && $method === 'POST') {
-            $this->savePage($pages, $media, null, $base);
+            $this->savePage($pdo, $pages, $media, null, $base);
             return;
         }
         if (preg_match('#^/admin/pages/([1-9][0-9]*)/edit$#D', $path, $match)) {
@@ -464,9 +464,12 @@ final class App
                 $this->notFound();
             }
             if ($method === 'POST') {
-                $this->savePage($pages, $media, $id, $base);
+                $this->savePage($pdo, $pages, $media, $id, $base);
             } elseif ($method === 'GET') {
-                View::render('admin/page-form', $base + array('page_title' => '编辑单页', 'page' => $page, 'media' => $media->all(), 'error' => null));
+                $cover = $media->coverForPage($id);
+                $page['cover_media_id'] = $cover['id'] ?? '';
+                $gallery = $media->galleryForPage($id);
+                View::render('admin/page-form', $base + array('page_title' => '编辑单页', 'page' => $page, 'media' => self::mediaOptionsForSelection($media, array_merge(array($page['cover_media_id']), array_column($gallery, 'media_id'))), 'gallery' => $gallery, 'attachment' => (new AttachmentRepository($pdo, $this->root . '/var'))->forPage($id), 'error' => null));
             } else {
                 $this->notFound();
             }
@@ -474,7 +477,10 @@ final class App
         }
         if (preg_match('#^/admin/pages/([1-9][0-9]*)/delete$#D', $path, $match) && $method === 'POST') {
             $this->requireCsrf();
+            $attachments = new AttachmentRepository($pdo, $this->root . '/var');
+            $oldFile = $attachments->forPage((int) $match[1])['path'] ?? null;
             $pages->delete((int) $match[1]);
+            $attachments->deleteFile($oldFile);
             $_SESSION['flash'] = '单页已删除。';
             $this->redirect('/admin/pages');
         }
@@ -688,24 +694,73 @@ final class App
         $this->notFound();
     }
 
-    private function savePage(PageRepository $pages, MediaRepository $media, ?int $id, array $base): void
+    private function savePage(PDO $pdo, PageRepository $pages, MediaRepository $media, ?int $id, array $base): void
     {
         $this->requireCsrf();
-        $input = array('id' => $id, 'title' => self::postString('title'), 'slug' => self::postString('slug'), 'body' => self::postString('body'), 'body_format' => self::postString('body_format') ?: ($id === null ? 'plain' : ($pages->byId($id)['body_format'] ?? 'plain')), 'status' => self::postString('status'), 'menu_order' => self::postString('menu_order'));
+        $input = array('id' => $id, 'title' => self::postString('title'), 'slug' => self::postString('slug'), 'body' => self::postString('body'), 'body_format' => self::postString('body_format') ?: ($id === null ? 'plain' : ($pages->byId($id)['body_format'] ?? 'plain')), 'status' => self::postString('status'), 'menu_order' => self::postString('menu_order'), 'cover_media_id' => self::postString('cover_media_id'));
+        $rawGalleryIds = $_POST['gallery_media_ids'] ?? array();
+        $rawGalleryTitles = $_POST['gallery_titles'] ?? array();
+        $gallery = array();
+        $galleryIds = array();
+        $galleryTitles = array();
+        $attachments = new AttachmentRepository($pdo, $this->root . '/var');
+        $attachment = $id === null ? null : $attachments->forPage($id);
+        $uploadFile = is_array($_FILES['attachment'] ?? null) ? $_FILES['attachment'] : array();
         try {
             $order = filter_var($input['menu_order'], FILTER_VALIDATE_INT);
             if ($order === false) {
                 throw new InvalidArgumentException('单页排序必须是整数。');
             }
-            $pages->save($id, $input['title'], $input['slug'], $input['body'], $input['status'], $order, $input['body_format']);
+            $coverId = $input['cover_media_id'] === '' ? null : filter_var($input['cover_media_id'], FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
+            if ($coverId === false) {
+                throw new InvalidArgumentException('封面图片无效。');
+            }
+            if (! is_array($rawGalleryIds) || ! is_array($rawGalleryTitles) || count($rawGalleryIds) !== count($rawGalleryTitles) || count($rawGalleryIds) > 30) {
+                throw new InvalidArgumentException('多图数据无效。');
+            }
+            foreach ($rawGalleryIds as $position => $galleryId) {
+                if (! is_string($galleryId) || ! isset($rawGalleryTitles[$position]) || ! is_string($rawGalleryTitles[$position])) {
+                    throw new InvalidArgumentException('多图数据无效。');
+                }
+                if ($galleryId === '' && $rawGalleryTitles[$position] === '') {
+                    continue;
+                }
+                $galleryIds[] = $galleryId;
+                $galleryTitles[] = $rawGalleryTitles[$position];
+                $image = ctype_digit($galleryId) ? $media->byId((int) $galleryId) : null;
+                $gallery[] = array('media_id' => $galleryId, 'title' => $rawGalleryTitles[$position], 'path' => $image['path'] ?? '');
+            }
+            $hasUpload = $uploadFile !== array() && ($uploadFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
+            if ($hasUpload) {
+                $attachments->validateUpload($uploadFile);
+            }
+            $pdo->beginTransaction();
+            try {
+                $pageId = $pages->save($id, $input['title'], $input['slug'], $input['body'], $input['status'], $order, $input['body_format']);
+                $media->setCoverForPage($pageId, $coverId);
+                $media->setGalleryForPage($pageId, $galleryIds, $galleryTitles);
+                $oldFile = null;
+                if ($hasUpload) {
+                    $oldFile = $attachments->replaceForPage($pageId, $uploadFile);
+                } elseif (self::postString('remove_attachment') === '1') {
+                    $oldFile = $attachments->removeForPage($pageId);
+                }
+                $pdo->commit();
+            } catch (Throwable $error) {
+                $pdo->rollBack();
+                throw $error;
+            }
+            $attachments->deleteFile($oldFile);
             $_SESSION['flash'] = '单页已保存。';
             $this->redirect('/admin/pages');
         } catch (InvalidArgumentException $error) {
             $message = $error->getMessage();
         } catch (PDOException $error) {
             $message = '保存失败，请检查单页别名是否重复。';
+        } catch (\RuntimeException $error) {
+            $message = $error->getMessage();
         }
-        View::render('admin/page-form', $base + array('page_title' => $id === null ? '新建单页' : '编辑单页', 'page' => $input, 'media' => $media->all(), 'error' => $message), 422);
+        View::render('admin/page-form', $base + array('page_title' => $id === null ? '新建单页' : '编辑单页', 'page' => $input, 'media' => self::mediaOptionsForSelection($media, array_merge(array($input['cover_media_id']), array_column($gallery, 'media_id'))), 'gallery' => $gallery, 'attachment' => $attachment, 'error' => $message), 422);
     }
 
     private function siteRoute(string $path, string $method, PDO $pdo, ContentRepository $repo, TagRepository $tags, PageRepository $pages, array $base): void
@@ -716,12 +771,30 @@ final class App
         $base['categories'] = $repo->rootCategories();
         $base['tags'] = $tags->all();
         $base['pages'] = $pages->published();
+        if (preg_match('#^/page/([a-z0-9-]+)/attachment$#D', $path, $match)) {
+            $page = $pages->publishedBySlug($match[1]);
+            if ($page === null) {
+                $this->notFound();
+            }
+            $attachments = new AttachmentRepository($pdo, $this->root . '/var');
+            $attachment = $attachments->forPage((int) $page['id']);
+            if ($attachment === null) {
+                $this->notFound();
+            }
+            try {
+                $attachments->send($attachment);
+            } catch (\RuntimeException $error) {
+                $this->notFound();
+            }
+            return;
+        }
         if (preg_match('#^/page/([a-z0-9-]+)$#D', $path, $match)) {
             $page = $pages->publishedBySlug($match[1]);
             if ($page === null) {
                 $this->notFound();
             }
-            View::render('site/page', $base + array('page_title' => $page['title'], 'page' => $page));
+            $media = new MediaRepository($pdo, $this->root . '/public');
+            View::render('site/page', $base + array('page_title' => $page['title'], 'page' => $page, 'cover' => $media->coverForPage((int) $page['id']), 'gallery' => $media->galleryForPage((int) $page['id']), 'attachment' => (new AttachmentRepository($pdo, $this->root . '/var'))->forPage((int) $page['id'])));
             return;
         }
         if ($path === '/') {

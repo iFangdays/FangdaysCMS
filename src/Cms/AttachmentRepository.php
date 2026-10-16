@@ -25,6 +25,11 @@ final class AttachmentRepository
         return $this->forOwner('category_attachment', 'category_id', $categoryId);
     }
 
+    public function forPage(int $pageId): ?array
+    {
+        return $this->forOwner('page_attachment', 'page_id', $pageId);
+    }
+
     private function forOwner(string $table, string $key, int $id): ?array
     {
         $stmt = $this->pdo->prepare('SELECT path, original_name, bytes FROM ' . $table . ' WHERE ' . $key . ' = ?');
@@ -71,6 +76,11 @@ final class AttachmentRepository
         return $this->replaceForOwner('category_attachment', 'category_id', $categoryId, $file);
     }
 
+    public function replaceForPage(int $pageId, array $file): ?string
+    {
+        return $this->replaceForOwner('page_attachment', 'page_id', $pageId, $file);
+    }
+
     private function replaceForOwner(string $table, string $key, int $id, array $file): ?string
     {
         $this->validateUpload($file);
@@ -110,6 +120,11 @@ final class AttachmentRepository
         return $this->removeForOwner('category_attachment', 'category_id', $categoryId);
     }
 
+    public function removeForPage(int $pageId): ?string
+    {
+        return $this->removeForOwner('page_attachment', 'page_id', $pageId);
+    }
+
     private function removeForOwner(string $table, string $key, int $id): ?string
     {
         $old = $this->forOwner($table, $key, $id);
@@ -127,6 +142,11 @@ final class AttachmentRepository
                 return;
             }
             $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM category_attachment WHERE path = ?');
+            $stmt->execute(array($path));
+            if ((int) $stmt->fetchColumn() > 0) {
+                return;
+            }
+            $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM page_attachment WHERE path = ?');
             $stmt->execute(array($path));
             if ((int) $stmt->fetchColumn() > 0) {
                 return;

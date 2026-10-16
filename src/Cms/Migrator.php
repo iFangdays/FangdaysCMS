@@ -8,7 +8,7 @@ use PDO;
 /** Additive schema upgrade from the original FangdaysCMS installation. */
 final class Migrator
 {
-    public const VERSION = 16;
+    public const VERSION = 17;
 
     public static function ensure(PDO $pdo): void
     {
@@ -82,8 +82,8 @@ final class Migrator
             $pdo->exec($ignore . ' INTO user_roles (user_id, role_id) SELECT id, ' . $roleIds['owner'] . ' FROM users');
             $pdo->exec($ignore . " INTO content_models (slug, name) VALUES ('article', '文章模型')");
             $pdo->exec($mysql
-                ? 'INSERT INTO cms_schema (id, version) VALUES (1, 16) ON DUPLICATE KEY UPDATE version = 16'
-                : 'INSERT INTO cms_schema (id, version) VALUES (1, 16) ON CONFLICT(id) DO UPDATE SET version = 16');
+                ? 'INSERT INTO cms_schema (id, version) VALUES (1, 17) ON DUPLICATE KEY UPDATE version = 17'
+                : 'INSERT INTO cms_schema (id, version) VALUES (1, 17) ON CONFLICT(id) DO UPDATE SET version = 17');
             if (! $mysql) {
                 $pdo->commit();
             }
@@ -130,6 +130,9 @@ final class Migrator
                 'CREATE TABLE IF NOT EXISTS category_cover (category_id BIGINT UNSIGNED PRIMARY KEY, media_id BIGINT UNSIGNED NOT NULL, FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE, FOREIGN KEY (media_id) REFERENCES media(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4',
                 "CREATE TABLE IF NOT EXISTS category_gallery (category_id BIGINT UNSIGNED NOT NULL, position INT NOT NULL, media_id BIGINT UNSIGNED NOT NULL, title VARCHAR(150) NOT NULL DEFAULT '', PRIMARY KEY (category_id, position), FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE, FOREIGN KEY (media_id) REFERENCES media(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
                 'CREATE TABLE IF NOT EXISTS category_attachment (category_id BIGINT UNSIGNED PRIMARY KEY, path VARCHAR(255) NOT NULL, original_name VARCHAR(255) NOT NULL, bytes BIGINT NOT NULL, FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4',
+                'CREATE TABLE IF NOT EXISTS page_cover (page_id BIGINT UNSIGNED PRIMARY KEY, media_id BIGINT UNSIGNED NOT NULL, FOREIGN KEY (page_id) REFERENCES pages(id) ON DELETE CASCADE, FOREIGN KEY (media_id) REFERENCES media(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4',
+                "CREATE TABLE IF NOT EXISTS page_gallery (page_id BIGINT UNSIGNED NOT NULL, position INT NOT NULL, media_id BIGINT UNSIGNED NOT NULL, title VARCHAR(150) NOT NULL DEFAULT '', PRIMARY KEY (page_id, position), FOREIGN KEY (page_id) REFERENCES pages(id) ON DELETE CASCADE, FOREIGN KEY (media_id) REFERENCES media(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+                'CREATE TABLE IF NOT EXISTS page_attachment (page_id BIGINT UNSIGNED PRIMARY KEY, path VARCHAR(255) NOT NULL, original_name VARCHAR(255) NOT NULL, bytes BIGINT NOT NULL, FOREIGN KEY (page_id) REFERENCES pages(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4',
                 'CREATE TABLE IF NOT EXISTS content_models (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, slug VARCHAR(64) NOT NULL UNIQUE, name VARCHAR(100) NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4',
                 'CREATE TABLE IF NOT EXISTS model_fields (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, model_id BIGINT UNSIGNED NOT NULL, name VARCHAR(64) NOT NULL, label VARCHAR(100) NOT NULL, field_type VARCHAR(20) NOT NULL, options_json TEXT NOT NULL, is_required TINYINT NOT NULL DEFAULT 0, sort_order INT NOT NULL DEFAULT 0, UNIQUE KEY model_field_name (model_id, name), FOREIGN KEY (model_id) REFERENCES content_models(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4',
                 'CREATE TABLE IF NOT EXISTS category_models (category_id BIGINT UNSIGNED PRIMARY KEY, model_id BIGINT UNSIGNED NOT NULL, FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE, FOREIGN KEY (model_id) REFERENCES content_models(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4',
@@ -160,6 +163,9 @@ final class Migrator
             'CREATE TABLE IF NOT EXISTS category_cover (category_id INTEGER PRIMARY KEY REFERENCES categories(id) ON DELETE CASCADE, media_id INTEGER NOT NULL REFERENCES media(id))',
             "CREATE TABLE IF NOT EXISTS category_gallery (category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE, position INTEGER NOT NULL, media_id INTEGER NOT NULL REFERENCES media(id), title TEXT NOT NULL DEFAULT '', PRIMARY KEY (category_id, position))",
             'CREATE TABLE IF NOT EXISTS category_attachment (category_id INTEGER PRIMARY KEY REFERENCES categories(id) ON DELETE CASCADE, path TEXT NOT NULL, original_name TEXT NOT NULL, bytes INTEGER NOT NULL)',
+            'CREATE TABLE IF NOT EXISTS page_cover (page_id INTEGER PRIMARY KEY REFERENCES pages(id) ON DELETE CASCADE, media_id INTEGER NOT NULL REFERENCES media(id))',
+            "CREATE TABLE IF NOT EXISTS page_gallery (page_id INTEGER NOT NULL REFERENCES pages(id) ON DELETE CASCADE, position INTEGER NOT NULL, media_id INTEGER NOT NULL REFERENCES media(id), title TEXT NOT NULL DEFAULT '', PRIMARY KEY (page_id, position))",
+            'CREATE TABLE IF NOT EXISTS page_attachment (page_id INTEGER PRIMARY KEY REFERENCES pages(id) ON DELETE CASCADE, path TEXT NOT NULL, original_name TEXT NOT NULL, bytes INTEGER NOT NULL)',
             'CREATE TABLE IF NOT EXISTS content_models (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL)',
             'CREATE TABLE IF NOT EXISTS model_fields (id INTEGER PRIMARY KEY AUTOINCREMENT, model_id INTEGER NOT NULL REFERENCES content_models(id) ON DELETE CASCADE, name TEXT NOT NULL, label TEXT NOT NULL, field_type TEXT NOT NULL, options_json TEXT NOT NULL, is_required INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0, UNIQUE (model_id, name))',
             'CREATE TABLE IF NOT EXISTS category_models (category_id INTEGER PRIMARY KEY REFERENCES categories(id) ON DELETE CASCADE, model_id INTEGER NOT NULL REFERENCES content_models(id))',
