@@ -236,7 +236,7 @@ final class App
             return;
         }
         if ($path === '/admin/categories/new' && $method === 'GET') {
-            View::render('admin/category-form', $base + array('page_title' => '新建栏目', 'category' => null, 'parents' => $repo->parentChoices(null), 'models' => (new ContentModelRepository($pdo))->all(), 'error' => null));
+            View::render('admin/category-form', $base + array('page_title' => '新建栏目', 'category' => null, 'parents' => $repo->parentChoices(null), 'models' => (new ContentModelRepository($pdo))->all(), 'media' => (new MediaRepository($pdo, $this->root . '/public'))->all(), 'error' => null));
             return;
         }
         if ($path === '/admin/categories' && $method === 'POST') {
@@ -337,7 +337,10 @@ final class App
             if ($method === 'POST') {
                 $this->saveCategory($pdo, $repo, $id, $base);
             } elseif ($method === 'GET') {
-                View::render('admin/category-form', $base + array('page_title' => '编辑栏目', 'category' => $category, 'parents' => $repo->parentChoices($id), 'models' => (new ContentModelRepository($pdo))->all(), 'error' => null));
+                $media = new MediaRepository($pdo, $this->root . '/public');
+                $category['thumbnail_media_id'] = $media->categoryImage($id, 'thumbnail')['id'] ?? '';
+                $category['banner_media_id'] = $media->categoryImage($id, 'banner')['id'] ?? '';
+                View::render('admin/category-form', $base + array('page_title' => '编辑栏目', 'category' => $category, 'parents' => $repo->parentChoices($id), 'models' => (new ContentModelRepository($pdo))->all(), 'media' => self::mediaOptionsForSelection($media, array($category['thumbnail_media_id'], $category['banner_media_id'])), 'error' => null));
             } else {
                 $this->notFound();
             }
@@ -830,11 +833,13 @@ final class App
                 header('Location: ' . $category['outlink'], true, 302);
                 exit;
             }
+            $media = new MediaRepository($pdo, $this->root . '/public');
+            $category['thumbnail_path'] = $media->categoryImage((int) $category['id'], 'thumbnail')['path'] ?? '';
+            $category['banner_path'] = $media->categoryImage((int) $category['id'], 'banner')['path'] ?? '';
             if ($category['type'] === 'single') {
                 if ($category['single_status'] !== 'published') {
                     $this->notFound();
                 }
-                $media = new MediaRepository($pdo, $this->root . '/public');
                 View::render('site/category-single', $base + array('page_title' => $category['name'], 'seo_title' => $category['seo_title'], 'seo_keywords' => $category['seo_keywords'], 'seo_description' => $category['seo_description'], 'category' => $category, 'breadcrumb' => $repo->categoryAncestors((int) $category['id']), 'cover' => $media->coverForCategory((int) $category['id']), 'gallery' => $media->galleryForCategory((int) $category['id']), 'attachment' => (new AttachmentRepository($pdo, $this->root . '/var'))->forCategory((int) $category['id']), 'extra_fields' => (new ContentModelRepository($pdo))->publicFieldsForSingleCategory((int) $category['id'])));
                 return;
             }
@@ -842,7 +847,12 @@ final class App
             $filterState = (new ContentModelRepository($pdo))->categoryFilters((int) $category['id'], $_GET);
             $totalPages = $filterState['invalid'] ? 0 : (int) ceil($repo->countPosts('published', (int) $category['id'], $members, fieldFilters: $filterState['filters']) / 20);
             $page = self::boundedPage($totalPages);
-            View::render('site/category', $base + array('page_title' => $category['name'], 'seo_title' => $category['seo_title'], 'seo_keywords' => $category['seo_keywords'], 'seo_description' => $category['seo_description'], 'category' => $category, 'breadcrumb' => $repo->categoryAncestors((int) $category['id']), 'child_categories' => $repo->childCategories((int) $category['id']), 'filter_fields' => $filterState['fields'], 'filter_params' => $filterState['params'], 'filter_invalid' => $filterState['invalid'], 'posts' => $filterState['invalid'] ? array() : $repo->posts('published', (int) $category['id'], $members, null, null, $page, fieldFilters: $filterState['filters']), 'page' => $page, 'total_pages' => $totalPages));
+            $children = $repo->childCategories((int) $category['id']);
+            foreach ($children as &$child) {
+                $child['thumbnail_path'] = $media->categoryImage((int) $child['id'], 'thumbnail')['path'] ?? '';
+            }
+            unset($child);
+            View::render('site/category', $base + array('page_title' => $category['name'], 'seo_title' => $category['seo_title'], 'seo_keywords' => $category['seo_keywords'], 'seo_description' => $category['seo_description'], 'category' => $category, 'breadcrumb' => $repo->categoryAncestors((int) $category['id']), 'child_categories' => $children, 'filter_fields' => $filterState['fields'], 'filter_params' => $filterState['params'], 'filter_invalid' => $filterState['invalid'], 'posts' => $filterState['invalid'] ? array() : $repo->posts('published', (int) $category['id'], $members, null, null, $page, fieldFilters: $filterState['filters']), 'page' => $page, 'total_pages' => $totalPages));
             return;
         }
         if (preg_match('#^/tag/([a-z0-9-]+)$#D', $path, $match)) {
@@ -907,7 +917,10 @@ final class App
     {
         $this->requireCsrf();
         $current = $id === null ? null : $repo->category($id);
-        $input = array('name' => self::postString('name'), 'slug' => self::postString('slug'), 'sort_order' => self::postString('sort_order'), 'model_id' => self::postString('model_id'), 'parent_id' => self::postString('parent_id'), 'type' => array_key_exists('type', $_POST) ? self::postString('type') : ($current['type'] ?? 'list'), 'outlink' => array_key_exists('outlink', $_POST) ? self::postString('outlink') : ($current['outlink'] ?? ''), 'seo_title' => array_key_exists('seo_title', $_POST) ? self::postString('seo_title') : ($current['seo_title'] ?? ''), 'seo_keywords' => array_key_exists('seo_keywords', $_POST) ? self::postString('seo_keywords') : ($current['seo_keywords'] ?? ''), 'seo_description' => array_key_exists('seo_description', $_POST) ? self::postString('seo_description') : ($current['seo_description'] ?? ''));
+        $media = new MediaRepository($pdo, $this->root . '/public');
+        $thumbnailId = $id === null ? '' : (string) ($media->categoryImage($id, 'thumbnail')['id'] ?? '');
+        $bannerId = $id === null ? '' : (string) ($media->categoryImage($id, 'banner')['id'] ?? '');
+        $input = array('name' => self::postString('name'), 'slug' => self::postString('slug'), 'sort_order' => self::postString('sort_order'), 'model_id' => self::postString('model_id'), 'parent_id' => self::postString('parent_id'), 'type' => array_key_exists('type', $_POST) ? self::postString('type') : ($current['type'] ?? 'list'), 'outlink' => array_key_exists('outlink', $_POST) ? self::postString('outlink') : ($current['outlink'] ?? ''), 'seo_title' => array_key_exists('seo_title', $_POST) ? self::postString('seo_title') : ($current['seo_title'] ?? ''), 'seo_keywords' => array_key_exists('seo_keywords', $_POST) ? self::postString('seo_keywords') : ($current['seo_keywords'] ?? ''), 'seo_description' => array_key_exists('seo_description', $_POST) ? self::postString('seo_description') : ($current['seo_description'] ?? ''), 'thumbnail_media_id' => array_key_exists('thumbnail_media_id', $_POST) ? self::postString('thumbnail_media_id') : $thumbnailId, 'banner_media_id' => array_key_exists('banner_media_id', $_POST) ? self::postString('banner_media_id') : $bannerId);
         try {
             $sortOrder = filter_var($input['sort_order'], FILTER_VALIDATE_INT);
             if ($sortOrder === false) {
@@ -922,11 +935,20 @@ final class App
             if ($modelId === false) {
                 throw new InvalidArgumentException('请选择有效的内容模型。');
             }
+            $imageIds = array();
+            foreach (array('thumbnail_media_id', 'banner_media_id') as $name) {
+                $imageIds[$name] = $input[$name] === '' ? null : filter_var($input[$name], FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
+                if ($imageIds[$name] === false) {
+                    throw new InvalidArgumentException('栏目图片无效。');
+                }
+            }
             $pdo->beginTransaction();
             try {
                 $categoryId = $repo->saveCategory($id, $input['name'], $input['slug'], $sortOrder, $parentId);
                 $models->bindCategory($categoryId, $modelId);
                 $repo->saveCategorySettings($categoryId, $input['type'], $input['outlink'], $input['seo_title'], $input['seo_keywords'], $input['seo_description']);
+                $media->setCategoryImage($categoryId, 'thumbnail', $imageIds['thumbnail_media_id']);
+                $media->setCategoryImage($categoryId, 'banner', $imageIds['banner_media_id']);
                 $pdo->commit();
             } catch (Throwable $error) {
                 $pdo->rollBack();
@@ -939,7 +961,7 @@ final class App
         } catch (PDOException $error) {
             $message = '保存失败，请检查栏目别名是否重复。';
         }
-        View::render('admin/category-form', $base + array('page_title' => $id === null ? '新建栏目' : '编辑栏目', 'category' => $input + array('id' => $id), 'parents' => $repo->parentChoices($id), 'models' => (new ContentModelRepository($pdo))->all(), 'error' => $message), 422);
+        View::render('admin/category-form', $base + array('page_title' => $id === null ? '新建栏目' : '编辑栏目', 'category' => $input + array('id' => $id), 'parents' => $repo->parentChoices($id), 'models' => (new ContentModelRepository($pdo))->all(), 'media' => self::mediaOptionsForSelection($media, array($input['thumbnail_media_id'], $input['banner_media_id'])), 'error' => $message), 422);
     }
 
     private function savePost(PDO $pdo, ContentRepository $repo, ?int $id, array $base): void

@@ -558,6 +558,20 @@ try {
     }
     $pages->delete($mediaPageId);
     $media->delete($pageMediaId);
+    $imageCategoryId = $repo->saveCategory(null, '图片栏目', 'image-category', 9);
+    $pdo->exec("INSERT INTO media (path, original_name, mime_type, bytes, created_at) VALUES ('/uploads/2026/10/44444444444444444444444444444444.png', 'category.png', 'image/png', 100, 1)");
+    $categoryMediaId = (int) $pdo->lastInsertId();
+    $media->setCategoryImage($imageCategoryId, 'thumbnail', $categoryMediaId);
+    $media->setCategoryImage($imageCategoryId, 'banner', $categoryMediaId);
+    check($media->categoryImage($imageCategoryId, 'thumbnail')['path'] === '/uploads/2026/10/44444444444444444444444444444444.png' && $media->categoryImage($imageCategoryId, 'banner')['id'] == $categoryMediaId, 'Category images were not saved.');
+    try {
+        $media->delete($categoryMediaId);
+        throw new RuntimeException('Category image was deleted while in use.');
+    } catch (InvalidArgumentException $error) {
+        check(str_contains($error->getMessage(), '栏目'), 'Category image guard failed.');
+    }
+    $repo->deleteCategory($imageCategoryId);
+    $media->delete($categoryMediaId);
     $transferCategory = $repo->saveCategory(null, '复制目标', 'transfer-target', 4);
     check($repo->transferPosts(array((string) $postId), 'copy', $transferCategory) === 1, 'Article copy failed.');
     $copy = $repo->publishedPostBySlug('first-post-copy');

@@ -93,7 +93,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             },
         )
         assert status == 200 and "后台登录" in login, login[:400]
-        assert "schema version 17 is ready" in command(site / "bin/migrate.php")
+        assert "schema version 18 is ready" in command(site / "bin/migrate.php")
         status, unlicensed = request("/")
         assert status == 503 and "尚未获得有效授权" in unlicensed
 
@@ -133,6 +133,17 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             media_list = response.read().decode("utf-8")
         assert "图片已上传" in media_list
         image_id = re.search(r'/admin/media/(\d+)/delete', media_list).group(1)
+        status, category_image_form = request("/admin/categories/1/edit")
+        assert status == 200 and 'name="thumbnail_media_id"' in category_image_form and 'name="banner_media_id"' in category_image_form
+        category_image_fields = {
+            "_csrf": csrf(category_image_form), "name": "新闻", "slug": "news", "sort_order": "1",
+            "model_id": "1", "type": "list", "thumbnail_media_id": image_id, "banner_media_id": image_id,
+        }
+        status, category_image_saved = request("/admin/categories/1/edit", category_image_fields)
+        assert status == 200 and "栏目已保存" in category_image_saved
+        status, bad_category_image = request("/admin/categories/1/edit", {**category_image_fields, "name": "不应保存", "banner_media_id": "999999"})
+        assert status == 422 and "栏目图片不存在" in bad_category_image
+        assert 'value="新闻"' in request("/admin/categories/1/edit")[1]
         invalid_upload = urllib.request.Request(base + "/admin/media", data=body.replace(png, b"not-an-image"), headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
         try:
             opener.open(invalid_upload, timeout=5)
@@ -228,6 +239,8 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
 
         status, front = request("/")
         assert status == 200 and "第一篇文章" in front and "/page/about" in front and "自定义页脚" in front and "/uploads/" in front
+        assert request("/category/news")[1].count('class="site-category-banner"') == 1
+        assert request("/category/news")[1].count('class="site-category-thumbnail"') == 1
         status, about = request("/page/about")
         assert status == 200 and "站点简介" in about and 'aria-label="单页多图"' in about and "关于我们图片" in about
         status, page_edit = request(f"/admin/pages/{page_id}/edit")
@@ -662,10 +675,11 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         status, child_form = request("/admin/categories/new")
         status, child_list = request("/admin/categories", {
             "_csrf": csrf(child_form), "name": "公司新闻", "slug": "company-news",
-            "sort_order": "2", "parent_id": "1", "model_id": "1"
+            "sort_order": "2", "parent_id": "1", "model_id": "1", "thumbnail_media_id": image_id,
         })
         assert status == 200 and "公司新闻" in child_list
         child_id = re.search(r'公司新闻.*?/admin/categories/(\d+)/edit', child_list, re.S).group(1)
+        assert 'class="site-child-thumbnail"' in request("/category/news")[1]
         status, grandchild_form = request("/admin/categories/new")
         status, grandchild_list = request("/admin/categories", {
             "_csrf": csrf(grandchild_form), "name": "行业动态", "slug": "industry-news",

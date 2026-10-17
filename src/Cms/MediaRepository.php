@@ -74,6 +74,35 @@ final class MediaRepository
         $this->replaceCover('category_cover', 'category_id', $categoryId, $mediaId);
     }
 
+    public function categoryImage(int $categoryId, string $kind): ?array
+    {
+        self::checkCategoryImageKind($kind);
+        $stmt = $this->pdo->prepare('SELECT m.id, m.path, m.original_name FROM category_images c JOIN media m ON m.id = c.media_id WHERE c.category_id = ? AND c.kind = ?');
+        $stmt->execute(array($categoryId, $kind));
+        return $stmt->fetch() ?: null;
+    }
+
+    public function setCategoryImage(int $categoryId, string $kind, ?int $mediaId): void
+    {
+        self::checkCategoryImageKind($kind);
+        if ($mediaId !== null && $this->byId($mediaId) === null) {
+            throw new InvalidArgumentException('栏目图片不存在。');
+        }
+        $stmt = $this->pdo->prepare('DELETE FROM category_images WHERE category_id = ? AND kind = ?');
+        $stmt->execute(array($categoryId, $kind));
+        if ($mediaId !== null) {
+            $stmt = $this->pdo->prepare('INSERT INTO category_images (category_id, kind, media_id) VALUES (?, ?, ?)');
+            $stmt->execute(array($categoryId, $kind, $mediaId));
+        }
+    }
+
+    private static function checkCategoryImageKind(string $kind): void
+    {
+        if (! in_array($kind, array('thumbnail', 'banner'), true)) {
+            throw new InvalidArgumentException('栏目图片类型无效。');
+        }
+    }
+
     public function coverForPage(int $pageId): ?array
     {
         $stmt = $this->pdo->prepare('SELECT m.id, m.path, m.original_name FROM page_cover c JOIN media m ON m.id = c.media_id WHERE c.page_id = ?');
@@ -178,6 +207,12 @@ final class MediaRepository
             if ((int) $stmt->fetchColumn() > 0) {
                 throw new InvalidArgumentException('图片正被' . $label . '使用。');
             }
+        }
+        $stmt = $this->pdo->prepare('SELECT kind FROM category_images WHERE media_id = ? LIMIT 1');
+        $stmt->execute(array($id));
+        $categoryKind = $stmt->fetchColumn();
+        if ($categoryKind !== false) {
+            throw new InvalidArgumentException('图片正被栏目' . ($categoryKind === 'thumbnail' ? '缩略图' : '大图') . '使用。');
         }
         foreach (array('slides' => '轮播图', 'friend_links' => '友情链接') as $table => $label) {
             $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM ' . $table . ' WHERE media_id = ?');
