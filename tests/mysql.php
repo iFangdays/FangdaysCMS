@@ -91,6 +91,11 @@ try {
     if ($models->publicFieldsForPost($post, $category)[0]['value'] !== '红色' || $repo->countPosts('published', null, true, null, '红色') !== 1) {
         throw new RuntimeException('MySQL content model field failed.');
     }
+    $publicRows = $repo->posts('published', $category, true);
+    $publicListFields = $models->publicFieldsForPosts($publicRows);
+    if (($publicListFields[$post]['ext_color']['value'] ?? '') !== '红色' || ($publicListFields[$post]['ext_size']['type'] ?? '') !== 'multi') {
+        throw new RuntimeException('MySQL batch template fields failed.');
+    }
     $filters = $models->categoryFilters($category, array('ext_color' => '红色', 'ext_size' => 'S'));
     if ($repo->countPosts('published', $category, true, fieldFilters: $filters['filters']) !== 1 || (int) $repo->posts('published', $category, true, fieldFilters: $filters['filters'])[0]['id'] !== $post) {
         throw new RuntimeException('MySQL combined model field filters failed.');

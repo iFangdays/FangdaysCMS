@@ -1,0 +1,6 @@
+<section class="site-page-heading"><div class="container"><p class="site-kicker">内容栏目</p><h1>{sort:name}</h1></div></section>
+<div class="container py-5">
+  <nav class="mb-4" aria-label="内容筛选">{pboot:selectall field=ext_color text=全部 class='btn btn-light' active='btn btn-primary'} {pboot:select field=ext_color}<a class="btn btn-light" href="[select:link]">[select:value]</a> {/pboot:select}</nav>
+  <div class="row">{pboot:list}<div class="col-md-6 mb-4"><article class="card h-100 site-card"><div class="card-body"><h2 class="h5"><a href="[list:link]">[list:title]</a></h2><p>[list:ext_color]</p><p>{pboot:checkbox id=[list:id] field=ext_size}<span class="badge badge-light mr-1">[checkbox:text]</span>{/pboot:checkbox}</p></div></article></div>{/pboot:list}</div>
+  {pboot:pagebar}
+</div>

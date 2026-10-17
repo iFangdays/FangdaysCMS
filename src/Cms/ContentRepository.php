@@ -234,7 +234,7 @@ final class ContentRepository
     public function posts(?string $status = null, ?int $categoryId = null, bool $includeMembers = false, ?int $tagId = null, ?string $query = null, int $page = 1, ?string $feature = null, bool $includeFuture = false, array $fieldFilters = array(), array $search = array()): array
     {
         [$where, $params] = $this->postFilters($status, $categoryId, $includeMembers, $tagId, $query, $feature, $includeFuture, $fieldFilters, $search);
-        $sql = "SELECT p.id, p.category_id, p.title, p.slug, p.body, p.status, p.created_at, p.updated_at, c.name AS category_name, COALESCE(v.visibility, 'public') AS visibility, m.path AS cover_path, " . self::POST_META_SELECT . " FROM posts p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN post_visibility v ON v.post_id = p.id LEFT JOIN post_cover pc ON pc.post_id = p.id LEFT JOIN media m ON m.id = pc.media_id LEFT JOIN post_meta pm ON pm.post_id = p.id";
+        $sql = "SELECT p.id, p.category_id, p.title, p.slug, p.body, p.status, p.created_at, p.updated_at, c.name AS category_name, c.slug AS category_slug, COALESCE(v.visibility, 'public') AS visibility, m.path AS cover_path, " . self::POST_META_SELECT . " FROM posts p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN post_visibility v ON v.post_id = p.id LEFT JOIN post_cover pc ON pc.post_id = p.id LEFT JOIN media m ON m.id = pc.media_id LEFT JOIN post_meta pm ON pm.post_id = p.id";
         if ($where) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
         }

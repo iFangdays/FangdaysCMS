@@ -43,21 +43,42 @@ final class SiteTemplate
         if ($source === false || strlen($source) > 500000) {
             throw new InvalidArgumentException('HTML 模板无法读取或文件过大。');
         }
+        $source = ContentFilterTags::html($source, $context['filter_fields'] ?? array(), (string) ($context['page_path'] ?? '/'), $context['filter_params'] ?? array());
         $posts = $context['posts'] ?? array();
-        $source = preg_replace_callback('~\{pboot:list(?:\s+[^{}]*)?\}(.*?)\{/pboot:list\}~si', static function (array $match) use ($posts): string {
+        $listExtras = $context['list_extra_fields'] ?? array();
+        $source = preg_replace_callback('~\{pboot:list(?:\s+[^{}]*)?\}(.*?)\{/pboot:list\}~si', static function (array $match) use ($posts, $listExtras): string {
             $html = '';
             foreach ($posts as $index => $post) {
+                $postId = (int) $post['id'];
+                $extras = $listExtras[$postId] ?? array();
                 $fields = array(
                     'n' => $index,
                     'i' => $index + 1,
-                    'id' => $post['id'],
+                    'id' => $postId,
+                    'scode' => $post['category_id'] ?? '',
+                    'sortname' => $post['category_name'] ?? '',
+                    'sortlink' => isset($post['category_slug']) && $post['category_slug'] !== null ? '/category/' . rawurlencode($post['category_slug']) : '',
                     'title' => $post['title'],
+                    'titlecolor' => $post['title_color'] ?? '',
+                    'subtitle' => $post['subtitle'] ?? '',
+                    'author' => $post['author'] ?? '',
+                    'source' => $post['source'] ?? '',
                     'link' => View::postLink($post),
+                    'outlink' => $post['outlink'] ?? '',
                     'date' => date('Y-m-d', (int) $post['published_at']),
                     'ico' => $post['cover_path'] ?? '',
+                    'isico' => ! empty($post['cover_path']) ? 1 : 0,
+                    'keywords' => $post['seo_keywords'] ?? '',
                     'description' => $post['seo_description'] ?: RichText::summary($post['body'], $post['body_format'], 120),
+                    'istop' => $post['is_top'] ?? 0,
+                    'isrecommend' => $post['is_recommended'] ?? 0,
+                    'isheadline' => $post['is_headline'] ?? 0,
                 );
-                $html .= self::replaceSquareTags($match[1], 'list', $fields);
+                foreach ($extras as $field) {
+                    $fields[$field['name']] = $field['value'];
+                }
+                $item = self::renderCheckboxes($match[1], $postId, $extras, '[list:id]');
+                $html .= self::replaceSquareTags($item, 'list', $fields);
             }
             return $html;
         }, $source) ?? $source;
@@ -78,22 +99,40 @@ final class SiteTemplate
         );
         $post = $context['post'] ?? array();
         $single = ($category['type'] ?? '') === 'single' && ! $post;
+        $coverPath = $single ? ($context['cover']['path'] ?? '') : ($post['cover_path'] ?? '');
+        $attachment = $context['attachment'] ?? null;
         $content = array(
             'id' => $single ? ($category['id'] ?? '') : ($post['id'] ?? ''),
             'scode' => $single ? ($category['id'] ?? '') : ($post['category_id'] ?? ''),
+            'sortname' => $category['name'] ?? '',
+            'sortlink' => $category ? View::categoryLink($category) : '',
             'title' => $single ? ($category['single_title'] ?? '') : ($post['title'] ?? ''),
+            'titlecolor' => $post['title_color'] ?? '',
             'subtitle' => $post['subtitle'] ?? '',
             'author' => $post['author'] ?? '',
             'source' => $post['source'] ?? '',
             'link' => $single ? View::categoryLink($category) : ($post ? View::postLink($post) : ''),
+            'outlink' => $post['outlink'] ?? '',
             'date' => $post ? date('Y-m-d', (int) $post['published_at']) : '',
-            'ico' => $single ? ($context['cover']['path'] ?? '') : ($post['cover_path'] ?? ''),
+            'ico' => $coverPath,
+            'isico' => $coverPath !== '' ? 1 : 0,
+            'pics' => implode(',', array_column($context['gallery'] ?? array(), 'path')),
+            'ispics' => ! empty($context['gallery']) ? 1 : 0,
+            'tags' => implode(',', array_column($context['tags'] ?? array(), 'name')),
+            'enclosure' => $attachment === null ? '' : ($single ? View::categoryLink($category) : View::postLink($post)) . '/attachment',
+            'enclosuresize' => $attachment['bytes'] ?? '',
             'keywords' => $single ? ($category['seo_keywords'] ?? '') : ($post['seo_keywords'] ?? ''),
             'description' => $single ? ($category['seo_description'] ?? '') : ($post['seo_description'] ?? ''),
+            'istop' => $post['is_top'] ?? 0,
+            'isrecommend' => $post['is_recommended'] ?? 0,
+            'isheadline' => $post['is_headline'] ?? 0,
         );
+        $contentExtras = array();
         foreach ($context['extra_fields'] ?? array() as $field) {
             $content[$field['name']] = $field['value'];
+            $contentExtras[$field['name']] = $field;
         }
+        $source = self::renderCheckboxes($source, (int) $content['id'], $contentExtras, '{content:id}');
         $body = $single
             ? RichText::render((string) ($category['single_body'] ?? ''), (string) ($category['single_body_format'] ?? 'plain'))
             : ($post ? RichText::render((string) $post['body'], (string) $post['body_format']) : '');
@@ -121,6 +160,36 @@ final class SiteTemplate
     private static function replaceSquareTags(string $source, string $prefix, array $fields): string
     {
         return preg_replace_callback('/\[' . preg_quote($prefix, '/') . ':([a-z][a-z0-9_]*)\]/i', static fn (array $match): string => View::e($fields[strtolower($match[1])] ?? ''), $source) ?? $source;
+    }
+
+    private static function renderCheckboxes(string $source, int $currentId, array $fields, string $placeholder): string
+    {
+        return preg_replace_callback('~\{pboot:checkbox\s+((?:[^{}]|\{content:id\})*)\}(.*?)\{/pboot:checkbox\}~si', static function (array $match) use ($currentId, $fields, $placeholder): string {
+            $attributes = self::attributes($match[1]);
+            $id = $attributes['id'] ?? '';
+            $name = $attributes['field'] ?? '';
+            if ($currentId < 1 || ! in_array($id, array((string) $currentId, $placeholder), true)
+                || ! preg_match('/^ext_[a-z][a-z0-9_]*$/D', $name)
+                || ($fields[$name]['type'] ?? '') !== 'multi') {
+                return '';
+            }
+            $html = '';
+            $choices = array_values(array_filter(explode(',', (string) $fields[$name]['value']), static fn (string $value): bool => $value !== ''));
+            foreach ($choices as $index => $value) {
+                $html .= self::replaceSquareTags($match[2], 'checkbox', array('n' => $index, 'i' => $index + 1, 'text' => $value));
+            }
+            return $html;
+        }, $source) ?? $source;
+    }
+
+    private static function attributes(string $source): array
+    {
+        preg_match_all('~\b([a-z]+)\s*=\s*(?:"([^"]*)"|\x27([^\x27]*)\x27|(\{content:id\}|[^\s}]+))~i', $source, $matches, PREG_SET_ORDER);
+        $attributes = array();
+        foreach ($matches as $match) {
+            $attributes[strtolower($match[1])] = $match[2] !== '' ? $match[2] : ($match[3] !== '' ? $match[3] : ($match[4] ?? ''));
+        }
+        return $attributes;
     }
 
     private static function validName(string $name): bool

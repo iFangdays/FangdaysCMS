@@ -339,13 +339,39 @@ final class ContentModelRepository
         return $this->publicFields($categoryId, $this->valuesForPost($postId));
     }
 
+    public function publicFieldsForPosts(array $posts): array
+    {
+        if (! $posts) {
+            return array();
+        }
+        $modelIds = array();
+        $categoryModels = array();
+        foreach ($posts as $post) {
+            $categoryId = $post['category_id'] === null ? null : (int) $post['category_id'];
+            $key = $categoryId ?? 0;
+            $categoryModels[$key] ??= (int) $this->modelForCategory($categoryId)['id'];
+            $modelIds[(int) $post['id']] = $categoryModels[$key];
+        }
+        $markers = implode(',', array_fill(0, count($modelIds), '?'));
+        $stmt = $this->pdo->prepare("SELECT pf.post_id, mf.model_id, mf.name, mf.label, mf.field_type, pf.value FROM post_field_values pf JOIN model_fields mf ON mf.id = pf.field_id WHERE pf.post_id IN ($markers)");
+        $stmt->execute(array_keys($modelIds));
+        $result = array();
+        foreach ($stmt as $field) {
+            $postId = (int) $field['post_id'];
+            if ($modelIds[$postId] === (int) $field['model_id']) {
+                $result[$postId][$field['name']] = array('name' => $field['name'], 'label' => $field['label'], 'type' => $field['field_type'], 'value' => $field['value']);
+            }
+        }
+        return $result;
+    }
+
     private function publicFields(?int $categoryId, array $values): array
     {
         $model = $this->modelForCategory($categoryId);
         $result = array();
         foreach ($this->fields((int) $model['id']) as $field) {
             if (isset($values[(int) $field['id']])) {
-                $result[] = array('name' => $field['name'], 'label' => $field['label'], 'value' => $values[(int) $field['id']]);
+                $result[] = array('name' => $field['name'], 'label' => $field['label'], 'type' => $field['field_type'], 'value' => $values[(int) $field['id']]);
             }
         }
         return $result;

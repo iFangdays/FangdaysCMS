@@ -608,6 +608,26 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         assert "内容栏目" in inherited_list and "第一篇文章" in inherited_list and "{pboot:list}" not in inherited_list
         model_detail = request("/post/first-post")[1]
         assert "新闻 ·" in model_detail and "产品正文" in model_detail and "{content:" not in model_detail
+        status, fields_model_form = request(f"/admin/models/{model_id}/edit")
+        status, fields_model_saved = request(f"/admin/models/{model_id}/edit", {
+            "_csrf": csrf(fields_model_form), "name": "产品模型", "slug": "product", "type": "list",
+            "list_template": "list-fields.html", "content_template": "detail-fields.html",
+        })
+        assert status == 200 and "内容模型已保存" in fields_model_saved
+        fields_list = request("/category/news?ext_color=%E7%BA%A2%E8%89%B2")[1]
+        assert "第一篇文章" in fields_list and "红色" in fields_list and 'class="badge badge-light mr-1">S</span>' in fields_list
+        assert "会员专享" not in fields_list and "{pboot:checkbox" not in fields_list and "[list:ext_color]" not in fields_list
+        fields_detail = request("/post/first-post")[1]
+        assert "产品正文" in fields_detail and "红色" in fields_detail and 'class="badge badge-light mr-1">S</span>' in fields_detail
+        if os.environ.get("FANGDAYS_PREVIEW_FIELDS") == "1":
+            print(f"Field template preview running at {base}/category/news?ext_color=%E7%BA%A2%E8%89%B2", flush=True)
+            input("Press Enter to resume smoke test: ")
+        status, simple_model_form = request(f"/admin/models/{model_id}/edit")
+        status, simple_model_saved = request(f"/admin/models/{model_id}/edit", {
+            "_csrf": csrf(simple_model_form), "name": "产品模型", "slug": "product", "type": "list",
+            "list_template": "list-simple.html", "content_template": "detail-simple.html",
+        })
+        assert status == 200 and "内容模型已保存" in simple_model_saved
         status, override_form = request("/admin/categories/1/edit")
         status, override_saved = request("/admin/categories/1/edit", {
             "_csrf": csrf(override_form), "name": "新闻", "slug": "news", "sort_order": "1",
