@@ -27,6 +27,7 @@ use FangdaysCMS\Cms\OperationsRepository;
 use FangdaysCMS\Cms\OperationTags;
 use FangdaysCMS\Cms\View;
 use FangdaysCMS\Cms\RichText;
+use FangdaysCMS\Cms\SiteTemplate;
 use FangdaysCMS\Licensing\LicenseCode;
 use FangdaysCMS\Licensing\LicenseStore;
 
@@ -179,12 +180,29 @@ try {
     $repo->deleteCategory($linkCategory);
     $models = new ContentModelRepository($pdo);
     check($models->defaultModel()['slug'] === 'article', 'Default content model is missing.');
-    $productModel = $models->saveModel(null, '产品模型', 'product');
+    check($models->defaultSingleModel()['type'] === 'single', 'Default single model is missing.');
+    $defaultSingle = $models->defaultSingleModel();
+    $models->saveModel((int) $defaultSingle['id'], '单页模型', $defaultSingle['slug'], 'single', '', 'single-simple.html');
+    check($models->defaultSingleModel()['content_template'] === 'single-simple.html', 'Default single model template could not be edited.');
+    $productModel = $models->saveModel(null, '产品模型', 'product', 'list', 'list-simple.html', 'detail-simple.html');
     $colorField = $models->saveField(null, $productModel, 'ext_color', '颜色', 'select', "红色\n蓝色", true, 1);
     $sizeField = $models->saveField(null, $productModel, 'ext_sizes', '尺码', 'multi', 'S,XS,M,L', false, 2);
     $productCategory = $repo->saveCategory(null, '产品', 'products', 2);
     $models->bindCategory($productCategory, $productModel);
     check((int) $models->modelForCategory($productCategory)['id'] === $productModel, 'Category model binding failed.');
+    check($models->templateForCategory($productCategory, 'list') === 'list-simple.html' && $models->templateForCategory($productCategory, 'content') === 'detail-simple.html', 'Model templates were not inherited by the category.');
+    $repo->saveCategorySettings($productCategory, 'list', '', '', '', '', null, null, 'single-simple.html');
+    check($models->templateForCategory($productCategory, 'content') === 'single-simple.html', 'Category template did not override the model default.');
+    $repo->saveCategorySettings($productCategory, 'list', '', '', '', '', null, null, '');
+    check($models->templateForCategory($productCategory, 'content') === 'detail-simple.html', 'Clearing the category override did not restore the model template.');
+    try {
+        $models->saveModel($productModel, '产品模型', 'product', 'list', '../secret.html', 'detail-simple.html');
+        throw new RuntimeException('Unsafe template path was accepted.');
+    } catch (InvalidArgumentException $error) {
+        check($models->model($productModel)['list_template'] === 'list-simple.html', 'Unsafe template path changed model settings.');
+    }
+    $escapedTemplate = SiteTemplate::render('detail-simple.html', array('category' => array('id' => 1, 'name' => '<script>alert(1)</script>', 'slug' => 'products', 'type' => 'list'), 'post' => array('id' => 1, 'category_id' => 1, 'title' => '<img src=x onerror=alert(1)>', 'slug' => 'safe', 'body' => '<script>bad()</script>', 'body_format' => 'plain', 'published_at' => 1)));
+    check(str_contains($escapedTemplate, '&lt;img src=x onerror=alert(1)&gt;') && str_contains($escapedTemplate, '&lt;script&gt;bad()&lt;/script&gt;') && ! str_contains($escapedTemplate, '<img src=x') && ! str_contains($escapedTemplate, '<script>'), 'HTML template data was not escaped.');
     $productPost = $repo->savePost(null, $productCategory, '测试产品', 'test-product', '产品正文', 'draft');
     $models->setValuesForPost($productPost, $productCategory, array($colorField => '红色', $sizeField => array('S', 'M')));
     check($models->valuesForPost($productPost)[$sizeField] === 'S,M', 'Multiple choice values were not saved.');
@@ -418,6 +436,23 @@ try {
     $legacy->exec('UPDATE cms_schema SET version = 18 WHERE id = 1');
     Migrator::ensure($legacy);
     check($legacyCategories->category($legacyCategoryId)['is_visible'] == 1 && $legacyCategories->category($legacyCategoryId)['single_body'] === '<旧栏目正文>', 'Upgrade from schema version 18 changed existing category visibility or content.');
+    $legacyModels = new ContentModelRepository($legacy);
+    $legacyMixedModel = $legacyModels->saveModel(null, '旧混合模型', 'legacy-mixed');
+    $legacyNamedSingle = $legacyModels->saveModel(null, '旧自定义模型', 'single');
+    $legacyListCategory = $legacyCategories->saveCategory(null, '旧列表栏目', 'legacy-list', 2);
+    $legacyModels->bindCategory($legacyListCategory, $legacyMixedModel);
+    $legacyModels->bindCategory($legacyCategoryId, $legacyMixedModel);
+    $legacy->exec('ALTER TABLE content_models DROP COLUMN type');
+    $legacy->exec('ALTER TABLE content_models DROP COLUMN list_template');
+    $legacy->exec('ALTER TABLE content_models DROP COLUMN content_template');
+    $legacy->exec('ALTER TABLE category_settings DROP COLUMN list_template');
+    $legacy->exec('ALTER TABLE category_settings DROP COLUMN content_template');
+    $legacy->exec('UPDATE cms_schema SET version = 19 WHERE id = 1');
+    Migrator::ensure($legacy);
+    check($legacyModels->model($legacyMixedModel)['type'] === 'mixed', 'Upgrade from schema version 19 failed to infer mixed model type: ' . $legacyModels->model($legacyMixedModel)['type']);
+    check($legacyModels->defaultSingleModel()['type'] === 'single', 'Upgrade from schema version 19 lost the default single model.');
+    check($legacyModels->model($legacyNamedSingle)['type'] === 'list' && $legacyModels->model($legacyNamedSingle)['name'] === '旧自定义模型', 'Upgrade from schema version 19 took over an existing custom model named single.');
+    check($legacyCategories->category($legacyCategoryId)['single_body'] === '<旧栏目正文>' && $legacyModels->templateForCategory($legacyListCategory, 'list') === '', 'Upgrade from schema version 19 changed category content or template selection.');
 
     $unsafeRich = '<p><strong>加粗内容</strong><img src="/uploads/2026/10/pic.png" onerror="alert(1)"><a href="javascript:alert(1)">危险链接</a><script>alert(1)</script></p>';
     $safeRich = RichText::clean($unsafeRich, 'html');

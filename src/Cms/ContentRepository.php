@@ -17,7 +17,7 @@ final class ContentRepository
 
     public function categories(): array
     {
-        $rows = $this->pdo->query("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, COALESCE(s.type, 'list') AS type, COALESCE(s.is_visible, 1) AS is_visible, COALESCE(s.outlink, '') AS outlink, COALESCE(s.single_status, 'draft') AS single_status FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id ORDER BY c.sort_order ASC, c.id ASC")->fetchAll();
+        $rows = $this->pdo->query("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, COALESCE(s.type, 'list') AS type, COALESCE(s.is_visible, 1) AS is_visible, COALESCE(s.list_template, '') AS list_template, COALESCE(s.content_template, '') AS content_template, COALESCE(s.outlink, '') AS outlink, COALESCE(s.single_status, 'draft') AS single_status FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id ORDER BY c.sort_order ASC, c.id ASC")->fetchAll();
         return self::treeRows($rows);
     }
 
@@ -93,24 +93,30 @@ final class ContentRepository
 
     public function category(int $id): ?array
     {
-        $stmt = $this->pdo->prepare("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, COALESCE(s.type, 'list') AS type, COALESCE(s.is_visible, 1) AS is_visible, COALESCE(s.outlink, '') AS outlink, COALESCE(s.seo_title, '') AS seo_title, COALESCE(s.seo_keywords, '') AS seo_keywords, COALESCE(s.seo_description, '') AS seo_description, COALESCE(s.single_title, '') AS single_title, COALESCE(s.single_body, '') AS single_body, COALESCE(s.single_body_format, 'plain') AS single_body_format, COALESCE(s.single_status, 'draft') AS single_status FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id WHERE c.id = ?");
+        $stmt = $this->pdo->prepare("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, COALESCE(s.type, 'list') AS type, COALESCE(s.is_visible, 1) AS is_visible, COALESCE(s.list_template, '') AS list_template, COALESCE(s.content_template, '') AS content_template, COALESCE(s.outlink, '') AS outlink, COALESCE(s.seo_title, '') AS seo_title, COALESCE(s.seo_keywords, '') AS seo_keywords, COALESCE(s.seo_description, '') AS seo_description, COALESCE(s.single_title, '') AS single_title, COALESCE(s.single_body, '') AS single_body, COALESCE(s.single_body_format, 'plain') AS single_body_format, COALESCE(s.single_status, 'draft') AS single_status FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id WHERE c.id = ?");
         $stmt->execute(array($id));
         return $stmt->fetch() ?: null;
     }
 
     public function categoryBySlug(string $slug): ?array
     {
-        $stmt = $this->pdo->prepare("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, COALESCE(s.type, 'list') AS type, COALESCE(s.is_visible, 1) AS is_visible, COALESCE(s.outlink, '') AS outlink, COALESCE(s.seo_title, '') AS seo_title, COALESCE(s.seo_keywords, '') AS seo_keywords, COALESCE(s.seo_description, '') AS seo_description, COALESCE(s.single_title, '') AS single_title, COALESCE(s.single_body, '') AS single_body, COALESCE(s.single_body_format, 'plain') AS single_body_format, COALESCE(s.single_status, 'draft') AS single_status FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id WHERE c.slug = ?");
+        $stmt = $this->pdo->prepare("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, COALESCE(s.type, 'list') AS type, COALESCE(s.is_visible, 1) AS is_visible, COALESCE(s.list_template, '') AS list_template, COALESCE(s.content_template, '') AS content_template, COALESCE(s.outlink, '') AS outlink, COALESCE(s.seo_title, '') AS seo_title, COALESCE(s.seo_keywords, '') AS seo_keywords, COALESCE(s.seo_description, '') AS seo_description, COALESCE(s.single_title, '') AS single_title, COALESCE(s.single_body, '') AS single_body, COALESCE(s.single_body_format, 'plain') AS single_body_format, COALESCE(s.single_status, 'draft') AS single_status FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id WHERE c.slug = ?");
         $stmt->execute(array($slug));
         return $stmt->fetch() ?: null;
     }
 
-    public function saveCategorySettings(int $categoryId, string $type, string $outlink, string $seoTitle, string $seoKeywords, string $seoDescription, ?bool $isVisible = null): void
+    public function saveCategorySettings(int $categoryId, string $type, string $outlink, string $seoTitle, string $seoKeywords, string $seoDescription, ?bool $isVisible = null, ?string $listTemplate = null, ?string $contentTemplate = null): void
     {
         $outlink = trim($outlink);
         $seoTitle = trim($seoTitle);
         $seoKeywords = trim($seoKeywords);
         $seoDescription = trim($seoDescription);
+        if ($listTemplate !== null) {
+            SiteTemplate::check($listTemplate);
+        }
+        if ($contentTemplate !== null) {
+            SiteTemplate::check($contentTemplate);
+        }
         if (! in_array($type, array('list', 'single', 'link'), true)
             || mb_strlen($seoTitle) > 255 || mb_strlen($seoKeywords) > 255 || mb_strlen($seoDescription) > 500) {
             throw new InvalidArgumentException('栏目类型或 SEO 信息无效。');
@@ -136,11 +142,11 @@ final class ContentRepository
         $exists = $this->pdo->prepare('SELECT category_id FROM category_settings WHERE category_id = ?');
         $exists->execute(array($categoryId));
         if ($exists->fetchColumn() === false) {
-            $stmt = $this->pdo->prepare('INSERT INTO category_settings (category_id, type, is_visible, outlink, seo_title, seo_keywords, seo_description, single_title, single_body, single_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-            $stmt->execute(array($categoryId, $type, (int) ($isVisible ?? true), $outlink, $seoTitle, $seoKeywords, $seoDescription, '', '', 'draft'));
+            $stmt = $this->pdo->prepare('INSERT INTO category_settings (category_id, type, is_visible, list_template, content_template, outlink, seo_title, seo_keywords, seo_description, single_title, single_body, single_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+            $stmt->execute(array($categoryId, $type, (int) ($isVisible ?? true), $listTemplate ?? '', $contentTemplate ?? '', $outlink, $seoTitle, $seoKeywords, $seoDescription, '', '', 'draft'));
         } else {
-            $stmt = $this->pdo->prepare('UPDATE category_settings SET type = ?, outlink = ?, seo_title = ?, seo_keywords = ?, seo_description = ?, is_visible = COALESCE(?, is_visible) WHERE category_id = ?');
-            $stmt->execute(array($type, $outlink, $seoTitle, $seoKeywords, $seoDescription, $isVisible === null ? null : (int) $isVisible, $categoryId));
+            $stmt = $this->pdo->prepare('UPDATE category_settings SET type = ?, outlink = ?, seo_title = ?, seo_keywords = ?, seo_description = ?, is_visible = COALESCE(?, is_visible), list_template = COALESCE(?, list_template), content_template = COALESCE(?, content_template) WHERE category_id = ?');
+            $stmt->execute(array($type, $outlink, $seoTitle, $seoKeywords, $seoDescription, $isVisible === null ? null : (int) $isVisible, $listTemplate, $contentTemplate, $categoryId));
         }
     }
 

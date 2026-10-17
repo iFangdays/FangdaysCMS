@@ -72,10 +72,21 @@ try {
         throw new RuntimeException('MySQL post metadata failed.');
     }
     $models = new ContentModelRepository($pdo);
-    $model = $models->saveModel(null, '产品模型', 'product');
+    if ($models->defaultSingleModel()['type'] !== 'single') {
+        throw new RuntimeException('MySQL default single model was not created.');
+    }
+    $model = $models->saveModel(null, '产品模型', 'product', 'list', 'list-simple.html', 'detail-simple.html');
     $field = $models->saveField(null, $model, 'ext_color', '颜色', 'select', '红色,蓝色', true, 1);
     $sizeField = $models->saveField(null, $model, 'ext_size', '尺码', 'multi', 'S,XS', false, 2);
     $models->bindCategory($category, $model);
+    $repo->saveCategorySettings($category, 'list', '', '', '', '', null, null, 'single-simple.html');
+    if ($models->templateForCategory($category, 'list') !== 'list-simple.html' || $models->templateForCategory($category, 'content') !== 'single-simple.html') {
+        throw new RuntimeException('MySQL category template override failed.');
+    }
+    $repo->saveCategorySettings($category, 'list', '', '', '', '', null, null, '');
+    if ($models->templateForCategory($category, 'content') !== 'detail-simple.html') {
+        throw new RuntimeException('MySQL model template inheritance failed.');
+    }
     $models->setValuesForPost($post, $category, array($field => '红色', $sizeField => array('S')));
     if ($models->publicFieldsForPost($post, $category)[0]['value'] !== '红色' || $repo->countPosts('published', null, true, null, '红色') !== 1) {
         throw new RuntimeException('MySQL content model field failed.');
@@ -279,6 +290,13 @@ try {
     \FangdaysCMS\Cms\Migrator::ensure($pdo);
     if ((int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'category_images'")->fetchColumn() !== 1 || $repo->category($singleCategoryId)['single_body_format'] !== 'html') {
         throw new RuntimeException('MySQL upgrade from schema version 17 lost single-page content or category images table.');
+    }
+    $pdo->exec('ALTER TABLE content_models DROP COLUMN type, DROP COLUMN list_template, DROP COLUMN content_template');
+    $pdo->exec('ALTER TABLE category_settings DROP COLUMN list_template, DROP COLUMN content_template');
+    $pdo->exec('UPDATE cms_schema SET version = 19 WHERE id = 1');
+    \FangdaysCMS\Cms\Migrator::ensure($pdo);
+    if ($models->model($model)['type'] !== 'list' || $models->defaultSingleModel()['type'] !== 'single' || $repo->category($singleCategoryId)['single_body_format'] !== 'html' || (int) $pdo->query('SELECT version FROM cms_schema WHERE id = 1')->fetchColumn() !== \FangdaysCMS\Cms\Migrator::VERSION) {
+        throw new RuntimeException('MySQL upgrade from schema version 19 lost category content or model type.');
     }
     echo "FangdaysCMS MySQL schema, content operations, membership, and roles passed\n";
 } finally {

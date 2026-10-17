@@ -27,6 +27,21 @@ final class View
         require $root . (str_starts_with($template, 'site/') ? '/views/site/layout.php' : '/views/layout.php');
     }
 
+    public static function renderSiteHtml(string $html, array $data = array(), int $status = 200): void
+    {
+        if (preg_match('/^\s*(?:<!doctype\s+html|<html\b)/i', $html)) {
+            http_response_code($status);
+            header('Content-Type: text/html; charset=utf-8');
+            header('X-Content-Type-Options: nosniff');
+            header('Referrer-Policy: same-origin');
+            header('X-Frame-Options: DENY');
+            echo $html;
+            return;
+        }
+        $data['html'] = $html;
+        self::render('site/template', $data, $status);
+    }
+
     public static function e($value): string
     {
         return htmlspecialchars(is_scalar($value) ? (string) $value : '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');

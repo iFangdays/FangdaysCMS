@@ -15,48 +15,77 @@ final class ContentModelRepository
 
     public function all(): array
     {
-        return $this->pdo->query('SELECT m.id, m.slug, m.name, COUNT(DISTINCT cm.category_id) AS category_count, COUNT(DISTINCT f.id) AS field_count FROM content_models m LEFT JOIN category_models cm ON cm.model_id = m.id LEFT JOIN model_fields f ON f.model_id = m.id GROUP BY m.id, m.slug, m.name ORDER BY m.id')->fetchAll();
+        return $this->pdo->query('SELECT m.id, m.slug, m.name, m.type, m.list_template, m.content_template, COUNT(DISTINCT cm.category_id) AS category_count, COUNT(DISTINCT f.id) AS field_count FROM content_models m LEFT JOIN category_models cm ON cm.model_id = m.id LEFT JOIN model_fields f ON f.model_id = m.id GROUP BY m.id, m.slug, m.name, m.type, m.list_template, m.content_template ORDER BY m.id')->fetchAll();
     }
 
     public function model(int $id): ?array
     {
-        $stmt = $this->pdo->prepare('SELECT id, slug, name FROM content_models WHERE id = ?');
+        $stmt = $this->pdo->prepare('SELECT id, slug, name, type, list_template, content_template FROM content_models WHERE id = ?');
         $stmt->execute(array($id));
         return $stmt->fetch() ?: null;
     }
 
     public function defaultModel(): array
     {
-        $stmt = $this->pdo->query("SELECT id, slug, name FROM content_models WHERE slug = 'article'");
+        $stmt = $this->pdo->query("SELECT id, slug, name, type, list_template, content_template FROM content_models WHERE slug = 'article'");
         return $stmt->fetch() ?: throw new InvalidArgumentException('默认文章模型不存在。');
     }
 
-    public function saveModel(?int $id, string $name, string $slug): int
+    public function defaultSingleModel(): array
+    {
+        $stmt = $this->pdo->query("SELECT id, slug, name, type, list_template, content_template FROM content_models WHERE slug = '__system_single'");
+        return $stmt->fetch() ?: throw new InvalidArgumentException('默认单页模型不存在。');
+    }
+
+    public function saveModel(?int $id, string $name, string $slug, ?string $type = null, ?string $listTemplate = null, ?string $contentTemplate = null): int
     {
         $name = trim($name);
-        if ($name === '' || mb_strlen($name) > 100 || ! preg_match('/^[a-z][a-z0-9-]{1,63}$/D', $slug)) {
+        $existing = $id === null ? null : $this->model($id);
+        $internalSlug = $existing !== null && $existing['slug'] === '__system_single' && $slug === $existing['slug'];
+        if ($name === '' || mb_strlen($name) > 100 || (! $internalSlug && ! preg_match('/^[a-z][a-z0-9-]{1,63}$/D', $slug))) {
             throw new InvalidArgumentException('模型名称或标识无效。');
         }
-        if ($id === null) {
-            $stmt = $this->pdo->prepare('INSERT INTO content_models (name, slug) VALUES (?, ?)');
-            $stmt->execute(array($name, $slug));
-            return (int) $this->pdo->lastInsertId();
-        }
-        if ($this->model($id) === null) {
+        if ($id !== null && $existing === null) {
             throw new InvalidArgumentException('模型不存在。');
         }
-        if ($this->model($id)['slug'] === 'article' && $slug !== 'article') {
+        $type ??= $existing['type'] ?? 'list';
+        $listTemplate ??= $existing['list_template'] ?? '';
+        $contentTemplate ??= $existing['content_template'] ?? '';
+        if (! in_array($type, array('list', 'single', 'mixed'), true) || ($type === 'mixed' && ($existing === null || $existing['type'] !== 'mixed'))) {
+            throw new InvalidArgumentException('模型类型无效。');
+        }
+        SiteTemplate::check($listTemplate);
+        SiteTemplate::check($contentTemplate);
+        if ($type === 'single' && $listTemplate !== '') {
+            throw new InvalidArgumentException('单页模型不使用列表页模板。');
+        }
+        if ($id === null) {
+            $stmt = $this->pdo->prepare('INSERT INTO content_models (name, slug, type, list_template, content_template) VALUES (?, ?, ?, ?, ?)');
+            $stmt->execute(array($name, $slug, $type, $listTemplate, $contentTemplate));
+            return (int) $this->pdo->lastInsertId();
+        }
+        if (in_array($existing['slug'], array('article', '__system_single'), true) && $slug !== $existing['slug']) {
             throw new InvalidArgumentException('默认模型标识不能修改。');
         }
-        $stmt = $this->pdo->prepare('UPDATE content_models SET name = ?, slug = ? WHERE id = ?');
-        $stmt->execute(array($name, $slug, $id));
+        if (in_array($existing['slug'], array('article', '__system_single'), true) && $type !== $existing['type']) {
+            throw new InvalidArgumentException('系统模型类型不能修改。');
+        }
+        if ($type !== $existing['type'] && $type !== 'mixed') {
+            $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM category_models cm LEFT JOIN category_settings cs ON cs.category_id = cm.category_id WHERE cm.model_id = ? AND COALESCE(cs.type, 'list') NOT IN (?, 'link')");
+            $stmt->execute(array($id, $type));
+            if ((int) $stmt->fetchColumn() > 0) {
+                throw new InvalidArgumentException('已有栏目与新模型类型不匹配，请先调整栏目。');
+            }
+        }
+        $stmt = $this->pdo->prepare('UPDATE content_models SET name = ?, slug = ?, type = ?, list_template = ?, content_template = ? WHERE id = ?');
+        $stmt->execute(array($name, $slug, $type, $listTemplate, $contentTemplate, $id));
         return $id;
     }
 
     public function deleteModel(int $id): void
     {
         $model = $this->model($id);
-        if ($model === null || $model['slug'] === 'article') {
+        if ($model === null || in_array($model['slug'], array('article', '__system_single'), true)) {
             throw new InvalidArgumentException('默认模型不能删除，或模型不存在。');
         }
         $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM category_models WHERE model_id = ?');
@@ -71,13 +100,30 @@ final class ContentModelRepository
     public function modelForCategory(?int $categoryId): array
     {
         if ($categoryId !== null) {
-            $stmt = $this->pdo->prepare('SELECT m.id, m.slug, m.name FROM category_models cm JOIN content_models m ON m.id = cm.model_id WHERE cm.category_id = ?');
+            $stmt = $this->pdo->prepare('SELECT m.id, m.slug, m.name, m.type, m.list_template, m.content_template FROM category_models cm JOIN content_models m ON m.id = cm.model_id WHERE cm.category_id = ?');
             $stmt->execute(array($categoryId));
             if ($model = $stmt->fetch()) {
                 return $model;
             }
         }
         return $this->defaultModel();
+    }
+
+    public function templateForCategory(?int $categoryId, string $page): string
+    {
+        if (! in_array($page, array('list', 'content'), true)) {
+            throw new InvalidArgumentException('页面类型无效。');
+        }
+        $column = $page . '_template';
+        if ($categoryId !== null) {
+            $stmt = $this->pdo->prepare('SELECT ' . $column . ' FROM category_settings WHERE category_id = ?');
+            $stmt->execute(array($categoryId));
+            $override = $stmt->fetchColumn();
+            if (is_string($override) && $override !== '') {
+                return $override;
+            }
+        }
+        return (string) $this->modelForCategory($categoryId)[$column];
     }
 
     public function bindCategory(int $categoryId, int $modelId): void
