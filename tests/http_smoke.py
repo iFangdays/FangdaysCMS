@@ -726,12 +726,32 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             "body": f'<p><strong>富文本正文</strong><img src="{editor_image["path"]}" onerror="alert(1)"><a href="javascript:alert(1)">链接</a><script>alert(1)</script></p>',
             "body_format": "html", "status": "published", "visibility": "public", "cover_media_id": image_id,
             "gallery_media_ids[]": [image_id, editor_image["id"]], "gallery_titles[]": ["封面图", "正文图"],
+            "tag_ids[]": tag_id,
             "seo_description": "",
         })
         assert status == 200 and "文章已保存" in rich_saved
         status, rich_article = request("/post/first-post")
         assert status == 200 and "<strong>富文本正文</strong>" in rich_article and editor_image["path"] in rich_article
         assert 'aria-label="文章多图"' in rich_article and "封面图" in rich_article and "正文图" in rich_article
+        status, media_category_form = request("/admin/categories/1/edit")
+        status, media_category_saved = request("/admin/categories/1/edit", {
+            "_csrf": csrf(media_category_form), "name": "新闻", "slug": "news", "sort_order": "1",
+            "model_id": "1", "list_template": "list-media.html", "content_template": "detail-media.html",
+        })
+        assert status == 200 and "栏目已保存" in media_category_saved
+        media_list = request("/category/news")[1]
+        assert 'alt="封面图"' in media_list and "正文图" not in media_list and 'href="/tag/topic"' in media_list
+        assert "会员专享" not in media_list and "{pboot:pics" not in media_list
+        media_detail = request("/post/first-post")[1]
+        assert "封面图" in media_detail and "正文图" in media_detail and 'href="/tag/topic"' in media_detail
+        if os.environ.get("FANGDAYS_PREVIEW_MEDIA") == "1":
+            print(f"Media template preview running at {base}/category/news", flush=True)
+            input("Press Enter to resume smoke test: ")
+        status, media_category_restored = request("/admin/categories/1/edit", {
+            "_csrf": csrf(media_category_saved), "name": "新闻", "slug": "news", "sort_order": "1", "model_id": "1",
+            "list_template": "", "content_template": "",
+        })
+        assert status == 200 and "栏目已保存" in media_category_restored
         status, duplicate_gallery = request("/admin/posts/1/edit", {
             "_csrf": csrf(rich_form), "title": "第一篇文章", "slug": "first-post", "category_id": "1",
             "body": "正文", "status": "published", "visibility": "public",

@@ -1,0 +1,5 @@
+<section class="site-page-heading"><div class="container"><p class="site-kicker">{content:sortname}</p><h1>{content:title}</h1></div></section>
+<div class="container py-5"><article class="site-article-body">{content:content}</article>
+  <section class="site-post-gallery mt-4" aria-label="文章多图"><h2>图片集</h2><div class="site-post-gallery-grid">{pboot:pics id={content:id}}<figure><img src="[pics:src]" alt="[pics:title]" loading="lazy"><figcaption>[pics:title]</figcaption></figure>{/pboot:pics}</div></section>
+  <div class="site-tags mt-4">{pboot:tags id={content:id}}<a href="[tags:link]">[tags:text]</a>{/pboot:tags}</div>
+</div>

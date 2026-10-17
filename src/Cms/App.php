@@ -858,6 +858,8 @@ final class App
             $data = $base + array('page_title' => $category['name'], 'seo_title' => $category['seo_title'], 'seo_keywords' => $category['seo_keywords'], 'seo_description' => $category['seo_description'], 'category' => $category, 'breadcrumb' => $repo->categoryAncestors((int) $category['id']), 'child_categories' => $children, 'filter_fields' => $filterState['fields'], 'filter_params' => $filterState['params'], 'filter_invalid' => $filterState['invalid'], 'posts' => $filterState['invalid'] ? array() : $repo->posts('published', (int) $category['id'], $members, null, null, $page, fieldFilters: $filterState['filters']), 'page' => $page, 'total_pages' => $totalPages, 'page_path' => '/category/' . rawurlencode($category['slug']), 'list_template' => $models->templateForCategory((int) $category['id'], 'list'), 'content_template' => $models->templateForCategory((int) $category['id'], 'content'));
             if ($data['list_template'] !== '') {
                 $data['list_extra_fields'] = $models->publicFieldsForPosts($data['posts']);
+                $data['list_galleries'] = $media->galleriesForPosts($data['posts']);
+                $data['list_tags'] = $tags->forPosts($data['posts']);
             }
             self::renderPublicTemplate($data['list_template'], 'site/category', $data);
             return;

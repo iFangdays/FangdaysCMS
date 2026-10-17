@@ -178,7 +178,14 @@ try {
     }
     $pdo->exec("INSERT INTO media (path, original_name, mime_type, bytes, created_at) VALUES ('/uploads/2026/10/0123456789abcdef0123456789abcdef.png', 'test.png', 'image/png', 100, 1)");
     $mediaId = (int) $pdo->lastInsertId();
-    (new MediaRepository($pdo, $root . '/public'))->setCover($post, $mediaId);
+    $media = new MediaRepository($pdo, $root . '/public');
+    $media->setCover($post, $mediaId);
+    $media->setGallery($post, array((string) $mediaId), array('MySQL 图片'));
+    $templateRows = $repo->posts('published', null, true, $tag);
+    if (($media->galleriesForPosts($templateRows)[$post][0]['title'] ?? '') !== 'MySQL 图片'
+        || ($tags->forPosts($templateRows)[$post][0]['slug'] ?? '') !== 'mysql-tag') {
+        throw new RuntimeException('MySQL batch template media or tags failed.');
+    }
     $operations = new OperationsRepository($pdo);
     $operations->saveCompany(array('name' => 'MySQL 企业', 'phone' => '010-12345678'));
     $labelId = $operations->saveLabel(null, array('name' => 'home_slogan', 'description' => '标语', 'value' => '欢迎'));

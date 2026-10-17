@@ -60,6 +60,23 @@ final class TagRepository
         return $stmt->fetchAll();
     }
 
+    /** @return array<int, array<int, array<string, mixed>>> */
+    public function forPosts(array $posts): array
+    {
+        $ids = array_values(array_unique(array_map(static fn (array $post): int => (int) $post['id'], $posts)));
+        if ($ids === array()) {
+            return array();
+        }
+        $markers = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare("SELECT pt.post_id, t.id, t.name, t.slug FROM post_tags pt JOIN tags t ON t.id = pt.tag_id WHERE pt.post_id IN ($markers) ORDER BY pt.post_id, t.name");
+        $stmt->execute($ids);
+        $result = array();
+        foreach ($stmt as $row) {
+            $result[(int) $row['post_id']][] = $row;
+        }
+        return $result;
+    }
+
     public function setForPost(int $postId, array $ids): void
     {
         $ids = array_values(array_unique(array_map('intval', $ids)));

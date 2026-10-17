@@ -1,0 +1,9 @@
+<section class="site-page-heading"><div class="container"><p class="site-kicker">内容栏目</p><h1>{sort:name}</h1></div></section>
+<div class="container py-5"><div class="row">
+  {pboot:list}<div class="col-md-6 mb-4"><article class="card h-100 site-card">
+    {pboot:pics id=[list:id] num=1}<a href="[list:link]"><img class="site-cover" src="[pics:src]" alt="[pics:title]" loading="lazy"></a>{/pboot:pics}
+    <div class="card-body"><h2 class="h5"><a href="[list:link]">[list:title]</a></h2>
+      <div class="site-tags">{pboot:tags id=[list:id]}<a href="[tags:link]">[tags:text]</a>{/pboot:tags}</div>
+    </div>
+  </article></div>{/pboot:list}
+</div>{pboot:pagebar}</div>

@@ -566,6 +566,16 @@ try {
     $secondMediaId = (int) $pdo->lastInsertId();
     $media->setGallery($postId, array((string) $mediaId, (string) $secondMediaId), array('第一张图', '第二张图'));
     check(array_column($media->galleryForPost($postId), 'title') === array('第一张图', '第二张图'), 'Gallery order was not retained.');
+    $templatePosts = array($repo->post($postId));
+    $templateGalleries = $media->galleriesForPosts($templatePosts);
+    $templateTags = $tags->forPosts($templatePosts);
+    check(count($templateGalleries[$postId]) === 2 && $templateTags[$postId][0]['slug'] === 'topic', 'Batch template media or tags lost article relations.');
+    $mediaListHtml = SiteTemplate::render('list-media.html', array('category' => $repo->category($categoryId), 'posts' => $templatePosts, 'list_galleries' => $templateGalleries, 'list_tags' => $templateTags));
+    check(str_contains($mediaListHtml, 'alt="第一张图"') && ! str_contains($mediaListHtml, '第二张图') && str_contains($mediaListHtml, 'href="/tag/topic"'), 'List media and tag loops failed or ignored the image limit.');
+    $mediaDetailHtml = SiteTemplate::render('detail-media.html', array('category' => $repo->category($categoryId), 'post' => $templatePosts[0], 'gallery' => $media->galleryForPost($postId), 'tags' => $tags->forPost($postId)));
+    check(str_contains($mediaDetailHtml, '第一张图') && str_contains($mediaDetailHtml, '第二张图') && str_contains($mediaDetailHtml, 'href="/tag/topic"') && ! str_contains($mediaDetailHtml, '{pboot:pics'), 'Detail media or tag loop failed.');
+    $unsafeMediaHtml = SiteTemplate::render('detail-media.html', array('post' => $templatePosts[0], 'gallery' => array(array('path' => '/uploads/photo.png', 'title' => '<script>bad()</script>')), 'tags' => array(array('name' => '<危险>', 'slug' => 'topic'))));
+    check(str_contains($unsafeMediaHtml, '&lt;script&gt;bad()&lt;/script&gt;') && str_contains($unsafeMediaHtml, '&lt;危险&gt;') && ! str_contains($unsafeMediaHtml, '<script>'), 'Media loop did not escape stored image or tag text.');
     try {
         $media->delete($secondMediaId);
         throw new RuntimeException('Gallery image was deleted.');

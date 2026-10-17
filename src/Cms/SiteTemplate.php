@@ -46,11 +46,15 @@ final class SiteTemplate
         $source = ContentFilterTags::html($source, $context['filter_fields'] ?? array(), (string) ($context['page_path'] ?? '/'), $context['filter_params'] ?? array());
         $posts = $context['posts'] ?? array();
         $listExtras = $context['list_extra_fields'] ?? array();
-        $source = preg_replace_callback('~\{pboot:list(?:\s+[^{}]*)?\}(.*?)\{/pboot:list\}~si', static function (array $match) use ($posts, $listExtras): string {
+        $listGalleries = $context['list_galleries'] ?? array();
+        $listTags = $context['list_tags'] ?? array();
+        $source = preg_replace_callback('~\{pboot:list(?:\s+[^{}]*)?\}(.*?)\{/pboot:list\}~si', static function (array $match) use ($posts, $listExtras, $listGalleries, $listTags): string {
             $html = '';
             foreach ($posts as $index => $post) {
                 $postId = (int) $post['id'];
                 $extras = $listExtras[$postId] ?? array();
+                $gallery = $listGalleries[$postId] ?? array();
+                $tags = $listTags[$postId] ?? array();
                 $fields = array(
                     'n' => $index,
                     'i' => $index + 1,
@@ -68,6 +72,9 @@ final class SiteTemplate
                     'date' => date('Y-m-d', (int) $post['published_at']),
                     'ico' => $post['cover_path'] ?? '',
                     'isico' => ! empty($post['cover_path']) ? 1 : 0,
+                    'pics' => implode(',', array_column($gallery, 'path')),
+                    'ispics' => $gallery ? 1 : 0,
+                    'tags' => implode(',', array_column($tags, 'name')),
                     'keywords' => $post['seo_keywords'] ?? '',
                     'description' => $post['seo_description'] ?: RichText::summary($post['body'], $post['body_format'], 120),
                     'istop' => $post['is_top'] ?? 0,
@@ -78,6 +85,8 @@ final class SiteTemplate
                     $fields[$field['name']] = $field['value'];
                 }
                 $item = self::renderCheckboxes($match[1], $postId, $extras, '[list:id]');
+                $item = self::renderPictures($item, $postId, $gallery, '[list:id]');
+                $item = self::renderTags($item, $postId, $tags, '[list:id]');
                 $html .= self::replaceSquareTags($item, 'list', $fields);
             }
             return $html;
@@ -133,6 +142,8 @@ final class SiteTemplate
             $contentExtras[$field['name']] = $field;
         }
         $source = self::renderCheckboxes($source, (int) $content['id'], $contentExtras, '{content:id}');
+        $source = self::renderPictures($source, (int) $content['id'], $context['gallery'] ?? array(), '{content:id}');
+        $source = self::renderTags($source, $post ? (int) $post['id'] : 0, $context['tags'] ?? array(), '{content:id}');
         $body = $single
             ? RichText::render((string) ($category['single_body'] ?? ''), (string) ($category['single_body_format'] ?? 'plain'))
             : ($post ? RichText::render((string) $post['body'], (string) $post['body_format']) : '');
@@ -180,6 +191,47 @@ final class SiteTemplate
             }
             return $html;
         }, $source) ?? $source;
+    }
+
+    private static function renderPictures(string $source, int $currentId, array $gallery, string $placeholder): string
+    {
+        return preg_replace_callback('~\{pboot:pics\s+((?:[^{}]|\{content:id\})*)\}(.*?)\{/pboot:pics\}~si', static function (array $match) use ($currentId, $gallery, $placeholder): string {
+            $attributes = self::attributes($match[1]);
+            if ($currentId < 1 || ! in_array($attributes['id'] ?? '', array((string) $currentId, $placeholder), true)
+                || ! in_array($attributes['field'] ?? 'pics', array('pics'), true)) {
+                return '';
+            }
+            $limit = self::loopLimit($attributes['num'] ?? null);
+            $html = '';
+            foreach (array_slice($gallery, 0, $limit) as $index => $image) {
+                $html .= self::replaceSquareTags($match[2], 'pics', array('n' => $index, 'i' => $index + 1, 'src' => $image['path'] ?? '', 'title' => $image['title'] ?? ''));
+            }
+            return $html;
+        }, $source) ?? $source;
+    }
+
+    private static function renderTags(string $source, int $currentId, array $tags, string $placeholder): string
+    {
+        return preg_replace_callback('~\{pboot:tags\s+((?:[^{}]|\{content:id\})*)\}(.*?)\{/pboot:tags\}~si', static function (array $match) use ($currentId, $tags, $placeholder): string {
+            $attributes = self::attributes($match[1]);
+            if ($currentId < 1 || ! in_array($attributes['id'] ?? '', array((string) $currentId, $placeholder), true)) {
+                return '';
+            }
+            $limit = self::loopLimit($attributes['num'] ?? null);
+            $html = '';
+            foreach (array_slice($tags, 0, $limit) as $index => $tag) {
+                $html .= self::replaceSquareTags($match[2], 'tags', array('n' => $index, 'i' => $index + 1, 'link' => '/tag/' . rawurlencode((string) ($tag['slug'] ?? '')), 'text' => $tag['name'] ?? ''));
+            }
+            return $html;
+        }, $source) ?? $source;
+    }
+
+    private static function loopLimit(?string $raw): int
+    {
+        if ($raw === null) {
+            return 100;
+        }
+        return ctype_digit($raw) && (int) $raw >= 1 && (int) $raw <= 100 ? (int) $raw : 0;
     }
 
     private static function attributes(string $source): array

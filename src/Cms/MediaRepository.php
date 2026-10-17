@@ -135,6 +135,23 @@ final class MediaRepository
         return $stmt->fetchAll();
     }
 
+    /** @return array<int, array<int, array<string, mixed>>> */
+    public function galleriesForPosts(array $posts): array
+    {
+        $ids = array_values(array_unique(array_map(static fn (array $post): int => (int) $post['id'], $posts)));
+        if ($ids === array()) {
+            return array();
+        }
+        $markers = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare("SELECT g.post_id, g.media_id, g.title, m.path, m.original_name FROM post_gallery g JOIN media m ON m.id = g.media_id WHERE g.post_id IN ($markers) ORDER BY g.post_id, g.position");
+        $stmt->execute($ids);
+        $result = array();
+        foreach ($stmt as $row) {
+            $result[(int) $row['post_id']][] = $row;
+        }
+        return $result;
+    }
+
     public function setGallery(int $postId, array $ids, array $titles): void
     {
         $this->replaceGallery('post_gallery', 'post_id', $postId, $ids, $titles);
