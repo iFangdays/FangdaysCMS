@@ -78,6 +78,10 @@ try {
     $model = $models->saveModel(null, '产品模型', 'product', 'list', 'list-simple.html', 'detail-simple.html');
     $field = $models->saveField(null, $model, 'ext_color', '颜色', 'select', '红色,蓝色', true, 1);
     $sizeField = $models->saveField(null, $model, 'ext_size', '尺码', 'multi', 'S,XS', false, 2);
+    $radioField = $models->saveField(null, $model, 'ext_shape', '形状', 'radio', '圆形,方形', false, 3);
+    $dateField = $models->saveField(null, $model, 'ext_release', '上市日期', 'date', '', false, 4);
+    $editorField = $models->saveField(null, $model, 'ext_details', '产品介绍', 'editor', '', false, 5);
+    $imageField = $models->saveField(null, $model, 'ext_photo', '产品图片', 'image', '', false, 6);
     $models->bindCategory($category, $model);
     $repo->saveCategorySettings($category, 'list', '', '', '', '', null, null, 'single-simple.html');
     if ($models->templateForCategory($category, 'list') !== 'list-simple.html' || $models->templateForCategory($category, 'content') !== 'single-simple.html') {
@@ -87,7 +91,26 @@ try {
     if ($models->templateForCategory($category, 'content') !== 'detail-simple.html') {
         throw new RuntimeException('MySQL model template inheritance failed.');
     }
-    $models->setValuesForPost($post, $category, array($field => '红色', $sizeField => array('S')));
+    $imagePath = '/uploads/2026/10/66666666666666666666666666666666.png';
+    $pdo->prepare('INSERT INTO media (path, original_name, mime_type, bytes, created_at) VALUES (?, ?, ?, ?, ?)')->execute(array($imagePath, 'model.png', 'image/png', 100, 1));
+    $imageMediaId = (int) $pdo->lastInsertId();
+    $models->setValuesForPost($post, $category, array($field => '红色', $sizeField => array('S'), $radioField => '圆形', $dateField => '2028-02-29', $editorField => '<strong>介绍</strong><script>alert(1)</script>', $imageField => $imagePath));
+    $newFieldValues = $models->valuesForPost($post);
+    if ($newFieldValues[$dateField] !== '2028-02-29' || $newFieldValues[$imageField] !== $imagePath || str_contains($newFieldValues[$editorField], '<script')) {
+        throw new RuntimeException('MySQL extension field types failed.');
+    }
+    try {
+        (new MediaRepository($pdo, $root))->delete($imageMediaId);
+        throw new RuntimeException('MySQL model image reference was deleted.');
+    } catch (InvalidArgumentException $error) {
+        if (! str_contains($error->getMessage(), '扩展字段')) {
+            throw $error;
+        }
+    }
+    $radioFilters = $models->categoryFilters($category, array('ext_shape' => '圆形'));
+    if ($repo->countPosts('published', $category, true, fieldFilters: $radioFilters['filters']) !== 1) {
+        throw new RuntimeException('MySQL radio field filter failed.');
+    }
     if ($models->publicFieldsForPost($post, $category)[0]['value'] !== '红色' || $repo->countPosts('published', null, true, null, '红色') !== 1) {
         throw new RuntimeException('MySQL content model field failed.');
     }

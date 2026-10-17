@@ -10,7 +10,7 @@ final class ContentFilterTags
     {
         $byName = array();
         foreach ($fields as $field) {
-            if (in_array($field['field_type'] ?? null, array('select', 'multi'), true) && is_string($field['name'] ?? null)) {
+            if (in_array($field['field_type'] ?? null, array('select', 'radio', 'multi'), true) && is_string($field['name'] ?? null)) {
                 $byName[$field['name']] = $field;
             }
         }

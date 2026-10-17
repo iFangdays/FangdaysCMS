@@ -238,6 +238,13 @@ final class MediaRepository
                 throw new InvalidArgumentException('图片正被' . $label . '使用。');
             }
         }
+        foreach (array('post_field_values' => '文章扩展字段', 'category_field_values' => '栏目扩展字段') as $table => $label) {
+            $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM ' . $table . ' WHERE value LIKE ?');
+            $stmt->execute(array('%' . $media['path'] . '%'));
+            if ((int) $stmt->fetchColumn() > 0) {
+                throw new InvalidArgumentException('图片正被' . $label . '使用。');
+            }
+        }
         $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM posts WHERE body LIKE ?');
         $stmt->execute(array('%' . $media['path'] . '%'));
         if ((int) $stmt->fetchColumn() > 0) {

@@ -187,6 +187,10 @@ try {
     $productModel = $models->saveModel(null, '产品模型', 'product', 'list', 'list-simple.html', 'detail-simple.html');
     $colorField = $models->saveField(null, $productModel, 'ext_color', '颜色', 'select', "红色\n蓝色", true, 1);
     $sizeField = $models->saveField(null, $productModel, 'ext_size', '尺码', 'multi', 'S,XS,M,L', false, 2);
+    $radioField = $models->saveField(null, $productModel, 'ext_shape', '形状', 'radio', '圆形,方形', false, 3);
+    $dateField = $models->saveField(null, $productModel, 'ext_release', '上市日期', 'date', '', false, 4);
+    $editorField = $models->saveField(null, $productModel, 'ext_details', '产品介绍', 'editor', '', false, 5);
+    $imageField = $models->saveField(null, $productModel, 'ext_photo', '产品图片', 'image', '', false, 6);
     $productCategory = $repo->saveCategory(null, '产品', 'products', 2);
     $models->bindCategory($productCategory, $productModel);
     check((int) $models->modelForCategory($productCategory)['id'] === $productModel, 'Category model binding failed.');
@@ -206,6 +210,44 @@ try {
     $productPost = $repo->savePost(null, $productCategory, '测试产品', 'test-product', '产品正文', 'draft');
     $models->setValuesForPost($productPost, $productCategory, array($colorField => '红色', $sizeField => array('S', 'M')));
     check($models->valuesForPost($productPost)[$sizeField] === 'S,M', 'Multiple choice values were not saved.');
+    $extensionPath = '/uploads/2026/10/55555555555555555555555555555555.png';
+    $pdo->prepare('INSERT INTO media (path, original_name, mime_type, bytes, created_at) VALUES (?, ?, ?, ?, ?)')->execute(array($extensionPath, 'extension.png', 'image/png', 100, 1));
+    $extensionMediaId = (int) $pdo->lastInsertId();
+    $mediaForFields = new MediaRepository($pdo, $root);
+    $models->setValuesForPost($productPost, $productCategory, array($colorField => '红色', $sizeField => array('S', 'M'), $radioField => '圆形', $dateField => '2028-02-29', $editorField => '<p><strong>安全介绍</strong><script>alert(1)</script></p>', $imageField => $extensionPath));
+    $extendedValues = $models->valuesForPost($productPost);
+    check($extendedValues[$dateField] === '2028-02-29' && $extendedValues[$imageField] === $extensionPath && str_contains($extendedValues[$editorField], '<strong>安全介绍</strong>') && ! str_contains($extendedValues[$editorField], '<script'), 'Additional field types did not save safe values.');
+    $extendedFields = $models->publicFieldsForPost($productPost, $productCategory);
+    $extensionTemplate = SiteTemplate::render('detail-extension-fields.html', array('category' => $repo->category($productCategory), 'post' => $repo->post($productPost), 'extra_fields' => $extendedFields));
+    check(str_contains($extensionTemplate, '<strong>安全介绍</strong>') && str_contains($extensionTemplate, $extensionPath) && str_contains($extensionTemplate, '2028-02-29') && ! str_contains($extensionTemplate, '<script'), 'New extension fields were not rendered safely in detail templates.');
+    $radioFilters = $models->categoryFilters($productCategory, array('ext_shape' => '圆形'));
+    check($repo->countPosts('draft', $productCategory, true, fieldFilters: $radioFilters['filters']) === 1, 'Radio field category filtering failed.');
+    $radioSearch = ContentSearch::parse($pdo, $repo, array('ext_shape' => '圆形', 'ext_release' => '2028-02-29'));
+    check($repo->countPosts('draft', null, true, search: $radioSearch['criteria']) === 1, 'Radio and date field search failed.');
+    try {
+        $mediaForFields->delete($extensionMediaId);
+        throw new RuntimeException('Used model image was deleted.');
+    } catch (InvalidArgumentException $error) {
+        check(str_contains($error->getMessage(), '扩展字段'), 'Media reference failure did not identify model fields.');
+    }
+    foreach (array(array($dateField => '2027-02-29'), array($radioField => '三角形'), array($imageField => '/uploads/missing.png')) as $invalidExtra) {
+        try {
+            $models->setValuesForPost($productPost, $productCategory, array($colorField => '红色') + $invalidExtra);
+            throw new RuntimeException('Invalid extension field value was accepted.');
+        } catch (InvalidArgumentException $error) {
+            check($models->valuesForPost($productPost)[$imageField] === $extensionPath, 'Invalid extension value changed stored fields.');
+        }
+    }
+    $models->setValuesForPost($productPost, $productCategory, array($colorField => '红色', $sizeField => array('S', 'M')));
+    $models->setValuesForPost($productPost, $productCategory, array($colorField => '红色', $editorField => '<p><img src="' . $extensionPath . '"></p>'));
+    try {
+        $mediaForFields->delete($extensionMediaId);
+        throw new RuntimeException('Image referenced by a model rich text field was deleted.');
+    } catch (InvalidArgumentException $error) {
+        check(str_contains($error->getMessage(), '扩展字段'), 'Model rich text image reference was not identified.');
+    }
+    $models->setValuesForPost($productPost, $productCategory, array($colorField => '红色', $sizeField => array('S', 'M')));
+    $mediaForFields->delete($extensionMediaId);
     check($models->publicFieldsForPost($productPost, $productCategory)[0]['value'] === '红色', 'Model field was not exposed to the public post.');
     $xsPost = $repo->savePost(null, $productCategory, '蓝色产品', 'blue-product', '正文', 'draft');
     $models->setValuesForPost($xsPost, $productCategory, array($colorField => '蓝色', $sizeField => array('XS')));

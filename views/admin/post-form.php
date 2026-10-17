@@ -28,13 +28,7 @@
     <?php foreach ($model_form['fields'] as $modelId => $modelFields): ?><?php if ($modelFields): ?>
       <?php $activeModel = (int) $modelId === (int) $model_form['active_id']; ?>
       <fieldset class="admin-model-fields" data-model-id="<?= (int) $modelId ?>" <?= $activeModel ? '' : 'hidden' ?>><legend>模型扩展字段</legend><div class="stack">
-        <?php foreach ($modelFields as $field): ?>
-          <?php $fieldId = (int) $field['id']; $fieldValue = $extra_values[$fieldId] ?? $extra_values[(string) $fieldId] ?? ''; $disabled = $activeModel ? '' : 'disabled'; ?>
-          <?php if ($field['field_type'] === 'textarea'): ?><label><?= \FangdaysCMS\Cms\View::e($field['label']) ?><textarea name="extra[<?= $fieldId ?>]" rows="4" <?= $field['is_required'] ? 'required' : '' ?> <?= $disabled ?>><?= \FangdaysCMS\Cms\View::e($fieldValue) ?></textarea></label>
-          <?php elseif ($field['field_type'] === 'select'): ?><label><?= \FangdaysCMS\Cms\View::e($field['label']) ?><select name="extra[<?= $fieldId ?>]" <?= $field['is_required'] ? 'required' : '' ?> <?= $disabled ?>><option value="">请选择</option><?php foreach ($field['options'] as $option): ?><option value="<?= \FangdaysCMS\Cms\View::e($option) ?>" <?= $fieldValue === $option ? 'selected' : '' ?>><?= \FangdaysCMS\Cms\View::e($option) ?></option><?php endforeach; ?></select></label>
-          <?php elseif ($field['field_type'] === 'multi'): ?><?php $selected = is_array($fieldValue) ? $fieldValue : array_filter(explode(',', (string) $fieldValue)); ?><fieldset><legend><?= \FangdaysCMS\Cms\View::e($field['label']) ?></legend><div class="check-grid"><?php foreach ($field['options'] as $option): ?><label class="check"><input type="checkbox" name="extra[<?= $fieldId ?>][]" value="<?= \FangdaysCMS\Cms\View::e($option) ?>" <?= in_array($option, $selected, true) ? 'checked' : '' ?> <?= $disabled ?>><?= \FangdaysCMS\Cms\View::e($option) ?></label><?php endforeach; ?></div></fieldset>
-          <?php else: ?><label><?= \FangdaysCMS\Cms\View::e($field['label']) ?><input name="extra[<?= $fieldId ?>]" maxlength="200" value="<?= \FangdaysCMS\Cms\View::e($fieldValue) ?>" <?= $field['is_required'] ? 'required' : '' ?> <?= $disabled ?>></label><?php endif; ?>
-        <?php endforeach; ?>
+        <?php require __DIR__ . '/partials/model-fields.php'; ?>
       </div></fieldset>
     <?php endif; ?><?php endforeach; ?>
     <fieldset><legend>标签</legend><div class="check-grid">
@@ -196,3 +190,4 @@
     });
   })();
 </script>
+<?php require __DIR__ . '/partials/model-fields-script.php'; ?>

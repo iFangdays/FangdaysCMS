@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace FangdaysCMS\Cms;
 
+use DateTimeImmutable;
 use InvalidArgumentException;
 use PDO;
 
@@ -168,17 +169,17 @@ final class ContentModelRepository
     {
         $name = trim($name);
         $label = trim($label);
-        if ($this->model($modelId) === null || ! preg_match('/^ext_[a-z][a-z0-9_]{0,58}$/D', $name) || $label === '' || mb_strlen($label) > 100 || ! in_array($type, array('text', 'textarea', 'select', 'multi'), true) || $sortOrder < 0 || $sortOrder > 1000000) {
+        if ($this->model($modelId) === null || ! preg_match('/^ext_[a-z][a-z0-9_]{0,58}$/D', $name) || $label === '' || mb_strlen($label) > 100 || ! in_array($type, array('text', 'textarea', 'select', 'radio', 'multi', 'date', 'editor', 'image'), true) || $sortOrder < 0 || $sortOrder > 1000000) {
             throw new InvalidArgumentException('字段名称、类型或排序无效。字段标识须以 ext_ 开头。');
         }
         $options = array_values(array_unique(array_filter(array_map('trim', preg_split('/[,，\r\n]+/u', $optionsText) ?: array()), static fn (string $value): bool => $value !== '')));
         if (count($options) > 50 || array_filter($options, static fn (string $value): bool => mb_strlen($value) > 100)) {
             throw new InvalidArgumentException('选项最多 50 个，每项不超过 100 字。');
         }
-        if (in_array($type, array('select', 'multi'), true) && ! $options) {
+        if (in_array($type, array('select', 'radio', 'multi'), true) && ! $options) {
             throw new InvalidArgumentException('选择类字段必须填写选项。');
         }
-        if (! in_array($type, array('select', 'multi'), true)) {
+        if (! in_array($type, array('select', 'radio', 'multi'), true)) {
             $options = array();
         }
         $encoded = json_encode($options, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
@@ -266,7 +267,7 @@ final class ContentModelRepository
     public function categoryFilters(int $categoryId, array $input): array
     {
         $model = $this->modelForCategory($categoryId);
-        $fields = array_values(array_filter($this->fields((int) $model['id']), static fn (array $field): bool => in_array($field['field_type'], array('select', 'multi'), true)));
+        $fields = array_values(array_filter($this->fields((int) $model['id']), static fn (array $field): bool => in_array($field['field_type'], array('select', 'radio', 'multi'), true)));
         $filters = array();
         $params = array();
         $invalid = false;
@@ -317,10 +318,37 @@ final class ContentModelRepository
                     throw new InvalidArgumentException($field['label'] . ' 的内容无效。');
                 }
                 $value = trim($raw);
-                if ($field['field_type'] === 'select' && $value !== '' && ! in_array($value, $field['options'], true)) {
+                if (in_array($field['field_type'], array('select', 'radio'), true) && $value !== '' && ! in_array($value, $field['options'], true)) {
                     throw new InvalidArgumentException($field['label'] . ' 包含未定义的选项。');
                 }
-                if (mb_strlen($value) > ($field['field_type'] === 'textarea' ? 5000 : 200)) {
+                if ($field['field_type'] === 'date' && $value !== '') {
+                    if (! preg_match('/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/D', $value)) {
+                        throw new InvalidArgumentException($field['label'] . ' 的日期无效。');
+                    }
+                    $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+                    if ($date === false || $date->format('Y-m-d') !== $value) {
+                        throw new InvalidArgumentException($field['label'] . ' 的日期无效。');
+                    }
+                }
+                if ($field['field_type'] === 'image' && $value !== '') {
+                    $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM media WHERE path = ?');
+                    $stmt->execute(array($value));
+                    if (! (int) $stmt->fetchColumn()) {
+                        throw new InvalidArgumentException($field['label'] . ' 的图片不在媒体库中。');
+                    }
+                }
+                if ($field['field_type'] === 'editor') {
+                    $value = RichText::clean($value, 'html');
+                    if (strlen($value) > 50000) {
+                        throw new InvalidArgumentException($field['label'] . ' 内容过长。');
+                    }
+                }
+                $limit = match ($field['field_type']) {
+                    'textarea' => 5000,
+                    'editor' => 200000,
+                    default => 200,
+                };
+                if (mb_strlen($value) > $limit) {
                     throw new InvalidArgumentException($field['label'] . ' 内容过长。');
                 }
             }

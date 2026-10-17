@@ -147,11 +147,14 @@ final class SiteTemplate
         $body = $single
             ? RichText::render((string) ($category['single_body'] ?? ''), (string) ($category['single_body_format'] ?? 'plain'))
             : ($post ? RichText::render((string) $post['body'], (string) $post['body_format']) : '');
-        $source = preg_replace_callback('/\{(?:sort|content):[a-z][a-z0-9_]*\}/i', static function (array $match) use ($sort, $content, $body): string {
+        $source = preg_replace_callback('/\{(?:sort|content):[a-z][a-z0-9_]*\}/i', static function (array $match) use ($sort, $content, $contentExtras, $body): string {
             [$kind, $field] = explode(':', substr($match[0], 1, -1), 2);
             $field = strtolower($field);
             if ($kind === 'content' && $field === 'content') {
                 return $body;
+            }
+            if ($kind === 'content' && ($contentExtras[$field]['type'] ?? '') === 'editor') {
+                return RichText::render((string) $contentExtras[$field]['value'], 'html');
             }
             return View::e(($kind === 'sort' ? $sort : $content)[$field] ?? '');
         }, $source) ?? $source;

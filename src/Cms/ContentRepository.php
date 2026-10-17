@@ -576,7 +576,7 @@ final class ContentRepository
             }
         }
         foreach ($fieldFilters as $filter) {
-            if (! is_array($filter) || ! is_int($filter['id'] ?? null) || $filter['id'] < 1 || ! is_string($filter['value'] ?? null) || ! in_array($filter['type'] ?? null, array('select', 'multi'), true)) {
+            if (! is_array($filter) || ! is_int($filter['id'] ?? null) || $filter['id'] < 1 || ! is_string($filter['value'] ?? null) || ! in_array($filter['type'] ?? null, array('select', 'radio', 'multi'), true)) {
                 throw new InvalidArgumentException('扩展字段筛选条件无效。');
             }
             $activeField = "EXISTS (SELECT 1 FROM post_field_values pf JOIN posts active_post ON active_post.id = pf.post_id JOIN model_fields mf ON mf.id = pf.field_id LEFT JOIN category_models cm ON cm.category_id = active_post.category_id WHERE pf.post_id = p.id AND pf.field_id = ? AND mf.model_id = COALESCE(cm.model_id, (SELECT id FROM content_models WHERE slug = 'article')) AND ";
@@ -641,6 +641,6 @@ final class ContentRepository
             ? "LOCATE(CONCAT(',', ?, ','), CONCAT(',', pf.value, ',')) > 0"
             : "instr(',' || pf.value || ',', ',' || ? || ',') > 0";
         array_push($params, $value, $value, $contains);
-        return $clause . "((mf.field_type = 'multi' AND " . $multi . ") OR (mf.field_type = 'select' AND pf.value = ?) OR (mf.field_type IN ('text', 'textarea') AND pf.value LIKE ? ESCAPE '!')))";
+        return $clause . "((mf.field_type = 'multi' AND " . $multi . ") OR (mf.field_type IN ('select', 'radio', 'date', 'image') AND pf.value = ?) OR (mf.field_type IN ('text', 'textarea', 'editor') AND pf.value LIKE ? ESCAPE '!')))";
     }
 }

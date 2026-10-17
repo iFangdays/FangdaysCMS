@@ -149,6 +149,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             media_list = response.read().decode("utf-8")
         assert "图片已上传" in media_list
         image_id = re.search(r'/admin/media/(\d+)/delete', media_list).group(1)
+        image_path = re.search(r'/uploads/[0-9]{4}/[0-9]{2}/[a-f0-9]{32}\.png', media_list).group(0)
         status, category_image_form = request("/admin/categories/1/edit")
         assert status == 200 and 'name="thumbnail_media_id"' in category_image_form and 'name="banner_media_id"' in category_image_form
         category_image_fields = {
@@ -533,6 +534,20 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         })
         assert status == 200 and "扩展字段已保存" in size_list
         size_id = re.search(r'ext_size.*?/fields/(\d+)/edit', size_list, re.S).group(1)
+        extra_ids = {}
+        for name, label, field_type, options in (
+            ("ext_shape", "形状", "radio", "圆形,方形"),
+            ("ext_release", "上市日期", "date", ""),
+            ("ext_details", "产品介绍", "editor", ""),
+            ("ext_photo", "产品图片", "image", ""),
+        ):
+            field_page = request(f"/admin/models/{model_id}/fields/new")[1]
+            status, saved_field = request(f"/admin/models/{model_id}/fields/new", {
+                "_csrf": csrf(field_page), "name": name, "label": label,
+                "field_type": field_type, "options_text": options, "sort_order": "3",
+            })
+            assert status == 200 and "扩展字段已保存" in saved_field, (name, status, re.findall(r'<div class="error"[^>]*>(.*?)</div>', saved_field))
+            extra_ids[name] = re.search(rf'{name}.*?/fields/(\d+)/edit', saved_field, re.S).group(1)
         status, category_edit = request("/admin/categories/1/edit")
         assert status == 200
         status, category_list = request("/admin/categories/1/edit", {
@@ -547,6 +562,10 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         assert status == 422 and "请选择现有的 HTML 模板文件" in invalid_category_template
         status, post_edit = request("/admin/posts/1/edit")
         assert status == 200 and 'name="extra[' + field_id + ']"' in post_edit
+        assert f'name="extra[{extra_ids["ext_shape"]}]"' in post_edit
+        assert f'type="date" name="extra[{extra_ids["ext_release"]}]"' in post_edit
+        assert f'id="extra-editor-host-{extra_ids["ext_details"]}"' in post_edit
+        assert f'name="extra[{extra_ids["ext_photo"]}]" data-extra-image' in post_edit
         update = {
             "_csrf": csrf(post_edit), "title": "第一篇文章", "slug": "first-post",
             "category_id": "1", "body": "产品正文", "status": "published",
@@ -555,12 +574,26 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             "title_color": "#176c73", "seo_keywords": "内容,专题",
             "seo_description": "文章摘要内容", "is_top": "1",
             "is_recommended": "1", "is_headline": "0",
-            f"extra[{field_id}]": "红色", f"extra[{size_id}][]": "S"
+            f"extra[{field_id}]": "红色", f"extra[{size_id}][]": "S",
+            f"extra[{extra_ids['ext_shape']}]": "圆形",
+            f"extra[{extra_ids['ext_release']}]": "2028-02-29",
+            f"extra[{extra_ids['ext_details']}]": "<p><strong>扩展介绍</strong><script>alert(1)</script></p>",
+            f"extra[{extra_ids['ext_photo']}]": image_path,
         }
         status, updated_post = request("/admin/posts/1/edit", update)
         assert status == 200 and "文章已保存" in updated_post
         status, product_article = request("/post/first-post")
         assert status == 200 and "颜色" in product_article and "红色" in product_article
+        assert "2028-02-29" in product_article and "圆形" in product_article
+        assert "<strong>扩展介绍</strong>" in product_article and "<script>alert(1)</script>" not in product_article
+        assert f'src="{image_path}" alt="产品图片"' in product_article
+        assert "第一篇文章" in request("/category/news?ext_shape=%E5%9C%86%E5%BD%A2")[1]
+        assert "第一篇文章" in request("/search?ext_release=2028-02-29")[1]
+        status, invalid_release = request("/admin/posts/1/edit", update | {f"extra[{extra_ids['ext_release']}]": "2027-02-29"})
+        assert status == 422 and "日期无效" in invalid_release
+        status, invalid_photo = request("/admin/posts/1/edit", update | {f"extra[{extra_ids['ext_photo']}]": "/uploads/missing.png"})
+        assert status == 422 and "媒体库" in invalid_photo
+        assert "2028-02-29" in request("/post/first-post")[1]
         status, filtered_products = request("/category/news?ext_color=%E7%BA%A2%E8%89%B2&ext_size=S")
         assert status == 200 and "筛选内容" in filtered_products and "第一篇文章" in filtered_products
         assert 'href="/category/news?ext_size=S"' in filtered_products
@@ -655,7 +688,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         status, single_model_form = request("/admin/models/new")
         status, single_model_created = request("/admin/models", {
             "_csrf": csrf(single_model_form), "name": "产品单页模型", "slug": "product-single-model",
-            "type": "single", "content_template": "single-simple.html",
+            "type": "single", "content_template": "single-extension-fields.html",
         })
         assert status == 200 and "产品单页模型" in single_model_created
         single_content_model_id = re.search(r'产品单页模型.*?/admin/models/(\d+)/edit', single_model_created, re.S).group(1)
@@ -666,6 +699,13 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         })
         assert status == 200 and "扩展字段已保存" in single_field_saved
         single_field_id = re.search(r'/fields/(\d+)/edit', single_field_saved).group(1)
+        single_date_form = request(f"/admin/models/{single_content_model_id}/fields/new")[1]
+        status, single_date_saved = request(f"/admin/models/{single_content_model_id}/fields/new", {
+            "_csrf": csrf(single_date_form), "name": "ext_release", "label": "发布日期",
+            "field_type": "date", "sort_order": "2",
+        })
+        assert status == 200 and "扩展字段已保存" in single_date_saved
+        single_date_id = re.search(r'ext_release.*?/fields/(\d+)/edit', single_date_saved, re.S).group(1)
         status, single_model_form = request("/admin/categories/new")
         status, single_model_list = request("/admin/categories", {
             "_csrf": csrf(single_model_form), "name": "产品单页", "slug": "product-single",
@@ -675,12 +715,13 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
         single_model_id = re.search(r'产品单页.*?/admin/categories/(\d+)/edit', single_model_list, re.S).group(1)
         status, single_model_edit = request(f"/admin/categories/{single_model_id}/single")
         assert status == 200 and f'name="extra[{single_field_id}]"' in single_model_edit
+        assert f'type="date" name="extra[{single_date_id}]"' in single_model_edit
         status, saved_model_single = request(f"/admin/categories/{single_model_id}/single", {
             "_csrf": csrf(single_model_edit), "title": "产品说明", "body": "原正文",
-            "status": "published", f"extra[{single_field_id}]": "蓝色",
+            "status": "published", f"extra[{single_field_id}]": "蓝色", f"extra[{single_date_id}]": "2028-02-29",
         })
         assert status == 200 and "单页栏目内容已保存" in saved_model_single
-        assert "蓝色" in request("/category/product-single")[1]
+        assert "蓝色" in request("/category/product-single")[1] and "2028-02-29" in request("/category/product-single")[1]
         status, invalid_model_single = request(f"/admin/categories/{single_model_id}/single", {
             "_csrf": csrf(saved_model_single), "title": "错误标题", "body": "错误正文",
             "status": "published", f"extra[{single_field_id}]": "绿色",

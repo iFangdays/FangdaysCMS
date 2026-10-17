@@ -6,13 +6,7 @@
     <label>内容标题<input name="title" required maxlength="100" value="<?= \FangdaysCMS\Cms\View::e($category['single_title'] ?: $category['name']) ?>"></label>
     <?php $editorBody = $category['single_body']; $editorFormat = $category['single_body_format']; require __DIR__ . '/partials/single-editor.php'; ?>
     <?php if ($fields): ?><fieldset class="admin-model-fields"><legend><?= \FangdaysCMS\Cms\View::e($model['name']) ?> · 扩展字段</legend><div class="stack">
-      <?php foreach ($fields as $field): ?>
-        <?php $fieldId = (int) $field['id']; $rawFieldValue = $extra_values[$fieldId] ?? $extra_values[(string) $fieldId] ?? ''; $fieldValue = $field['field_type'] === 'multi' && is_array($rawFieldValue) ? $rawFieldValue : (is_string($rawFieldValue) ? $rawFieldValue : ''); ?>
-        <?php if ($field['field_type'] === 'textarea'): ?><label><?= \FangdaysCMS\Cms\View::e($field['label']) ?><textarea name="extra[<?= $fieldId ?>]" rows="4" maxlength="5000" <?= $field['is_required'] ? 'required' : '' ?>><?= \FangdaysCMS\Cms\View::e($fieldValue) ?></textarea></label>
-        <?php elseif ($field['field_type'] === 'select'): ?><label><?= \FangdaysCMS\Cms\View::e($field['label']) ?><select name="extra[<?= $fieldId ?>]" <?= $field['is_required'] ? 'required' : '' ?>><option value="">请选择</option><?php foreach ($field['options'] as $option): ?><option value="<?= \FangdaysCMS\Cms\View::e($option) ?>" <?= $fieldValue === $option ? 'selected' : '' ?>><?= \FangdaysCMS\Cms\View::e($option) ?></option><?php endforeach; ?></select></label>
-        <?php elseif ($field['field_type'] === 'multi'): ?><?php $selected = is_array($fieldValue) ? $fieldValue : array_filter(explode(',', (string) $fieldValue)); ?><fieldset><legend><?= \FangdaysCMS\Cms\View::e($field['label']) ?></legend><div class="check-grid"><?php foreach ($field['options'] as $option): ?><label class="check"><input type="checkbox" name="extra[<?= $fieldId ?>][]" value="<?= \FangdaysCMS\Cms\View::e($option) ?>" <?= in_array($option, $selected, true) ? 'checked' : '' ?>><?= \FangdaysCMS\Cms\View::e($option) ?></label><?php endforeach; ?></div></fieldset>
-        <?php else: ?><label><?= \FangdaysCMS\Cms\View::e($field['label']) ?><input name="extra[<?= $fieldId ?>]" maxlength="200" value="<?= \FangdaysCMS\Cms\View::e($fieldValue) ?>" <?= $field['is_required'] ? 'required' : '' ?>></label><?php endif; ?>
-      <?php endforeach; ?>
+      <?php $modelFields = $fields; $activeModel = true; require __DIR__ . '/partials/model-fields.php'; ?>
     </div></fieldset><?php endif; ?>
     <fieldset class="stack"><legend>展示图片</legend>
       <label>封面图片<select name="cover_media_id"><option value="">无封面</option><?php foreach ($media as $image): ?><option value="<?= (int) $image['id'] ?>" <?= (string) ($category['cover_media_id'] ?? '') === (string) $image['id'] ? 'selected' : '' ?>><?= \FangdaysCMS\Cms\View::e($image['original_name']) ?> (#<?= (int) $image['id'] ?>)</option><?php endforeach; ?></select></label>
@@ -60,3 +54,4 @@
     });
   })();
 </script>
+<?php require __DIR__ . '/partials/model-fields-script.php'; ?>
