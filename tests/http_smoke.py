@@ -93,7 +93,7 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             },
         )
         assert status == 200 and "后台登录" in login, login[:400]
-        assert "schema version 18 is ready" in command(site / "bin/migrate.php")
+        assert "schema version 19 is ready" in command(site / "bin/migrate.php")
         status, unlicensed = request("/")
         assert status == 503 and "尚未获得有效授权" in unlicensed
 
@@ -109,6 +109,22 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
             "/admin/categories", {"_csrf": csrf(categories), "name": "新闻", "slug": "news", "sort_order": "1"}
         )
         assert status == 200 and "新闻" in category_list
+        status, category_form = request("/admin/categories/1/edit")
+        assert status == 200 and 'name="is_visible"' in category_form
+        status, hidden_list = request("/admin/categories/1/edit", {
+            "_csrf": csrf(category_form), "name": "新闻", "slug": "news", "sort_order": "1", "is_visible": "0"
+        })
+        assert status == 200 and "隐藏" in hidden_list
+        status, hidden_form = request("/admin/categories/1/edit")
+        assert status == 200 and 'value="0" selected' in hidden_form
+        status, invalid_visibility = request("/admin/categories/1/edit", {
+            "_csrf": csrf(hidden_form), "name": "新闻", "slug": "news", "sort_order": "1", "is_visible": "maybe"
+        })
+        assert status == 422 and "显示状态" in invalid_visibility
+        status, restored_list = request("/admin/categories/1/edit", {
+            "_csrf": csrf(hidden_form), "name": "新闻", "slug": "news", "sort_order": "1", "is_visible": "1"
+        })
+        assert status == 200
         status, bad_category = request("/admin/categories", {"_csrf": csrf(categories), "name": "错误栏目", "slug": "bad", "sort_order": "abc"})
         assert status == 422 and "栏目排序必须是整数" in bad_category
 
@@ -239,6 +255,17 @@ with tempfile.TemporaryDirectory(prefix="fangdays-http-") as workspace:
 
         status, front = request("/")
         assert status == 200 and "第一篇文章" in front and "/page/about" in front and "自定义页脚" in front and "/uploads/" in front
+        status, visible_form = request("/admin/categories/1/edit")
+        status, hidden_list = request("/admin/categories/1/edit", {
+            "_csrf": csrf(visible_form), "name": "新闻", "slug": "news", "sort_order": "1", "is_visible": "0"
+        })
+        assert status == 200 and 'href="/category/news"' not in request("/")[1]
+        assert request("/category/news")[0] == 200 and request("/post/first-post")[0] == 200
+        status, hidden_form = request("/admin/categories/1/edit")
+        status, restored_list = request("/admin/categories/1/edit", {
+            "_csrf": csrf(hidden_form), "name": "新闻", "slug": "news", "sort_order": "1", "is_visible": "1"
+        })
+        assert status == 200 and 'href="/category/news"' in request("/")[1]
         assert request("/category/news")[1].count('class="site-category-banner"') == 1
         assert request("/category/news")[1].count('class="site-category-thumbnail"') == 1
         status, about = request("/page/about")

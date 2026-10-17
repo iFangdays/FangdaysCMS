@@ -920,7 +920,7 @@ final class App
         $media = new MediaRepository($pdo, $this->root . '/public');
         $thumbnailId = $id === null ? '' : (string) ($media->categoryImage($id, 'thumbnail')['id'] ?? '');
         $bannerId = $id === null ? '' : (string) ($media->categoryImage($id, 'banner')['id'] ?? '');
-        $input = array('name' => self::postString('name'), 'slug' => self::postString('slug'), 'sort_order' => self::postString('sort_order'), 'model_id' => self::postString('model_id'), 'parent_id' => self::postString('parent_id'), 'type' => array_key_exists('type', $_POST) ? self::postString('type') : ($current['type'] ?? 'list'), 'outlink' => array_key_exists('outlink', $_POST) ? self::postString('outlink') : ($current['outlink'] ?? ''), 'seo_title' => array_key_exists('seo_title', $_POST) ? self::postString('seo_title') : ($current['seo_title'] ?? ''), 'seo_keywords' => array_key_exists('seo_keywords', $_POST) ? self::postString('seo_keywords') : ($current['seo_keywords'] ?? ''), 'seo_description' => array_key_exists('seo_description', $_POST) ? self::postString('seo_description') : ($current['seo_description'] ?? ''), 'thumbnail_media_id' => array_key_exists('thumbnail_media_id', $_POST) ? self::postString('thumbnail_media_id') : $thumbnailId, 'banner_media_id' => array_key_exists('banner_media_id', $_POST) ? self::postString('banner_media_id') : $bannerId);
+        $input = array('name' => self::postString('name'), 'slug' => self::postString('slug'), 'sort_order' => self::postString('sort_order'), 'model_id' => self::postString('model_id'), 'parent_id' => self::postString('parent_id'), 'type' => array_key_exists('type', $_POST) ? self::postString('type') : ($current['type'] ?? 'list'), 'is_visible' => array_key_exists('is_visible', $_POST) ? self::postString('is_visible') : (string) ($current['is_visible'] ?? '1'), 'outlink' => array_key_exists('outlink', $_POST) ? self::postString('outlink') : ($current['outlink'] ?? ''), 'seo_title' => array_key_exists('seo_title', $_POST) ? self::postString('seo_title') : ($current['seo_title'] ?? ''), 'seo_keywords' => array_key_exists('seo_keywords', $_POST) ? self::postString('seo_keywords') : ($current['seo_keywords'] ?? ''), 'seo_description' => array_key_exists('seo_description', $_POST) ? self::postString('seo_description') : ($current['seo_description'] ?? ''), 'thumbnail_media_id' => array_key_exists('thumbnail_media_id', $_POST) ? self::postString('thumbnail_media_id') : $thumbnailId, 'banner_media_id' => array_key_exists('banner_media_id', $_POST) ? self::postString('banner_media_id') : $bannerId);
         try {
             $sortOrder = filter_var($input['sort_order'], FILTER_VALIDATE_INT);
             if ($sortOrder === false) {
@@ -935,6 +935,9 @@ final class App
             if ($modelId === false) {
                 throw new InvalidArgumentException('请选择有效的内容模型。');
             }
+            if (! in_array($input['is_visible'], array('0', '1'), true)) {
+                throw new InvalidArgumentException('请选择有效的栏目显示状态。');
+            }
             $imageIds = array();
             foreach (array('thumbnail_media_id', 'banner_media_id') as $name) {
                 $imageIds[$name] = $input[$name] === '' ? null : filter_var($input[$name], FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
@@ -946,7 +949,7 @@ final class App
             try {
                 $categoryId = $repo->saveCategory($id, $input['name'], $input['slug'], $sortOrder, $parentId);
                 $models->bindCategory($categoryId, $modelId);
-                $repo->saveCategorySettings($categoryId, $input['type'], $input['outlink'], $input['seo_title'], $input['seo_keywords'], $input['seo_description']);
+                $repo->saveCategorySettings($categoryId, $input['type'], $input['outlink'], $input['seo_title'], $input['seo_keywords'], $input['seo_description'], $input['is_visible'] === '1');
                 $media->setCategoryImage($categoryId, 'thumbnail', $imageIds['thumbnail_media_id']);
                 $media->setCategoryImage($categoryId, 'banner', $imageIds['banner_media_id']);
                 $pdo->commit();

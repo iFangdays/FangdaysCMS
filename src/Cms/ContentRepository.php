@@ -17,13 +17,13 @@ final class ContentRepository
 
     public function categories(): array
     {
-        $rows = $this->pdo->query("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, COALESCE(s.type, 'list') AS type, COALESCE(s.outlink, '') AS outlink, COALESCE(s.single_status, 'draft') AS single_status FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id ORDER BY c.sort_order ASC, c.id ASC")->fetchAll();
+        $rows = $this->pdo->query("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, COALESCE(s.type, 'list') AS type, COALESCE(s.is_visible, 1) AS is_visible, COALESCE(s.outlink, '') AS outlink, COALESCE(s.single_status, 'draft') AS single_status FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id ORDER BY c.sort_order ASC, c.id ASC")->fetchAll();
         return self::treeRows($rows);
     }
 
     public function categoriesWithPostCounts(): array
     {
-        $rows = $this->pdo->query("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, m.name AS model_name, COALESCE(s.type, 'list') AS type, COALESCE(s.outlink, '') AS outlink, COALESCE(s.single_status, 'draft') AS single_status, COUNT(p.id) AS post_count FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id LEFT JOIN content_models m ON m.id = cm.model_id LEFT JOIN posts p ON p.category_id = c.id GROUP BY c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, m.name, s.type, s.outlink, s.single_status ORDER BY c.sort_order ASC, c.id ASC")->fetchAll();
+        $rows = $this->pdo->query("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, m.name AS model_name, COALESCE(s.type, 'list') AS type, COALESCE(s.is_visible, 1) AS is_visible, COALESCE(s.outlink, '') AS outlink, COALESCE(s.single_status, 'draft') AS single_status, COUNT(p.id) AS post_count FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id LEFT JOIN content_models m ON m.id = cm.model_id LEFT JOIN posts p ON p.category_id = c.id GROUP BY c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, m.name, s.type, s.is_visible, s.outlink, s.single_status ORDER BY c.sort_order ASC, c.id ASC")->fetchAll();
         $rows = self::treeRows($rows);
         $counts = array();
         foreach ($rows as $row) {
@@ -93,19 +93,19 @@ final class ContentRepository
 
     public function category(int $id): ?array
     {
-        $stmt = $this->pdo->prepare("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, COALESCE(s.type, 'list') AS type, COALESCE(s.outlink, '') AS outlink, COALESCE(s.seo_title, '') AS seo_title, COALESCE(s.seo_keywords, '') AS seo_keywords, COALESCE(s.seo_description, '') AS seo_description, COALESCE(s.single_title, '') AS single_title, COALESCE(s.single_body, '') AS single_body, COALESCE(s.single_body_format, 'plain') AS single_body_format, COALESCE(s.single_status, 'draft') AS single_status FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id WHERE c.id = ?");
+        $stmt = $this->pdo->prepare("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, COALESCE(s.type, 'list') AS type, COALESCE(s.is_visible, 1) AS is_visible, COALESCE(s.outlink, '') AS outlink, COALESCE(s.seo_title, '') AS seo_title, COALESCE(s.seo_keywords, '') AS seo_keywords, COALESCE(s.seo_description, '') AS seo_description, COALESCE(s.single_title, '') AS single_title, COALESCE(s.single_body, '') AS single_body, COALESCE(s.single_body_format, 'plain') AS single_body_format, COALESCE(s.single_status, 'draft') AS single_status FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id WHERE c.id = ?");
         $stmt->execute(array($id));
         return $stmt->fetch() ?: null;
     }
 
     public function categoryBySlug(string $slug): ?array
     {
-        $stmt = $this->pdo->prepare("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, COALESCE(s.type, 'list') AS type, COALESCE(s.outlink, '') AS outlink, COALESCE(s.seo_title, '') AS seo_title, COALESCE(s.seo_keywords, '') AS seo_keywords, COALESCE(s.seo_description, '') AS seo_description, COALESCE(s.single_title, '') AS single_title, COALESCE(s.single_body, '') AS single_body, COALESCE(s.single_body_format, 'plain') AS single_body_format, COALESCE(s.single_status, 'draft') AS single_status FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id WHERE c.slug = ?");
+        $stmt = $this->pdo->prepare("SELECT c.id, c.parent_id, c.name, c.slug, c.sort_order, cm.model_id, COALESCE(s.type, 'list') AS type, COALESCE(s.is_visible, 1) AS is_visible, COALESCE(s.outlink, '') AS outlink, COALESCE(s.seo_title, '') AS seo_title, COALESCE(s.seo_keywords, '') AS seo_keywords, COALESCE(s.seo_description, '') AS seo_description, COALESCE(s.single_title, '') AS single_title, COALESCE(s.single_body, '') AS single_body, COALESCE(s.single_body_format, 'plain') AS single_body_format, COALESCE(s.single_status, 'draft') AS single_status FROM categories c LEFT JOIN category_models cm ON cm.category_id = c.id LEFT JOIN category_settings s ON s.category_id = c.id WHERE c.slug = ?");
         $stmt->execute(array($slug));
         return $stmt->fetch() ?: null;
     }
 
-    public function saveCategorySettings(int $categoryId, string $type, string $outlink, string $seoTitle, string $seoKeywords, string $seoDescription): void
+    public function saveCategorySettings(int $categoryId, string $type, string $outlink, string $seoTitle, string $seoKeywords, string $seoDescription, ?bool $isVisible = null): void
     {
         $outlink = trim($outlink);
         $seoTitle = trim($seoTitle);
@@ -136,11 +136,11 @@ final class ContentRepository
         $exists = $this->pdo->prepare('SELECT category_id FROM category_settings WHERE category_id = ?');
         $exists->execute(array($categoryId));
         if ($exists->fetchColumn() === false) {
-            $stmt = $this->pdo->prepare('INSERT INTO category_settings (category_id, type, outlink, seo_title, seo_keywords, seo_description, single_title, single_body, single_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-            $stmt->execute(array($categoryId, $type, $outlink, $seoTitle, $seoKeywords, $seoDescription, '', '', 'draft'));
+            $stmt = $this->pdo->prepare('INSERT INTO category_settings (category_id, type, is_visible, outlink, seo_title, seo_keywords, seo_description, single_title, single_body, single_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+            $stmt->execute(array($categoryId, $type, (int) ($isVisible ?? true), $outlink, $seoTitle, $seoKeywords, $seoDescription, '', '', 'draft'));
         } else {
-            $stmt = $this->pdo->prepare('UPDATE category_settings SET type = ?, outlink = ?, seo_title = ?, seo_keywords = ?, seo_description = ? WHERE category_id = ?');
-            $stmt->execute(array($type, $outlink, $seoTitle, $seoKeywords, $seoDescription, $categoryId));
+            $stmt = $this->pdo->prepare('UPDATE category_settings SET type = ?, outlink = ?, seo_title = ?, seo_keywords = ?, seo_description = ?, is_visible = COALESCE(?, is_visible) WHERE category_id = ?');
+            $stmt->execute(array($type, $outlink, $seoTitle, $seoKeywords, $seoDescription, $isVisible === null ? null : (int) $isVisible, $categoryId));
         }
     }
 
@@ -161,7 +161,7 @@ final class ContentRepository
 
     private static function isPublicCategory(array $category): bool
     {
-        return $category['type'] !== 'single' || $category['single_status'] === 'published';
+        return (int) $category['is_visible'] === 1 && ($category['type'] !== 'single' || $category['single_status'] === 'published');
     }
 
     public function saveCategory(?int $id, string $name, string $slug, int $sortOrder, ?int $parentId = null): int

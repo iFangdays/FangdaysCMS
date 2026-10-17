@@ -97,6 +97,10 @@ try {
     if ($repo->countPosts('published', $category) !== 2 || (int) $repo->categories()[1]['depth'] !== 1) {
         throw new RuntimeException('MySQL category hierarchy failed.');
     }
+    $repo->saveCategorySettings($childCategory, 'list', '', '', '', '', false);
+    if ($repo->childCategories($category) !== array() || $repo->categoryBySlug('mysql-child')['is_visible'] != 0 || $repo->publishedPostBySlug('mysql-nested-post') === null) {
+        throw new RuntimeException('MySQL hidden category behavior failed.');
+    }
     $repo->deletePost($childPost);
     $repo->deleteCategory($childCategory);
     $repo->deleteCategory($category);

@@ -89,6 +89,14 @@ try {
     check(array_column($repo->categories(), 'depth') === array(0, 1, 2), 'Category tree order or depth failed.');
     check(array_column($repo->categoryAncestors($grandchildCategory), 'name') === array('新闻', '公司新闻', '行业动态'), 'Category ancestors failed.');
     check(count($repo->rootCategories()) === 1 && count($repo->childCategories($categoryId)) === 1, 'Category hierarchy listing failed.');
+    $repo->saveCategorySettings($childCategory, 'list', '', '', '', '', false);
+    check($repo->childCategories($categoryId) === array() && $repo->categoryBySlug('company-news')['is_visible'] == 0 && $repo->publishedPostBySlug('nested-post') !== null, 'Hidden child category should leave published content accessible.');
+    $repo->saveCategorySettings($childCategory, 'list', '', '', '', '');
+    check($repo->childCategories($categoryId) === array(), 'Editing hidden category without visibility choice changed visibility.');
+    $repo->saveCategorySettings($childCategory, 'list', '', '', '', '', true);
+    $repo->saveCategorySettings($categoryId, 'list', '', '', '', '', false);
+    check($repo->rootCategories() === array() && count($repo->categoriesWithPostCounts()) === 3 && $repo->categoryBySlug('news') !== null, 'Hidden root category was not limited to public navigation.');
+    $repo->saveCategorySettings($categoryId, 'list', '', '', '', '', true);
     check($repo->countPosts('published', $categoryId) === 2 && count($repo->posts('published', $categoryId)) === 2, 'Parent category did not include descendant posts.');
     check((int) $repo->categoriesWithPostCounts()[0]['post_count'] === 2, 'Parent category count omitted descendant posts.');
     $repo->savePostMeta($postId, array('subtitle' => '内容副标题', 'author' => '编辑部', 'source' => '本站', 'title_color' => '#176c73', 'outlink' => '/search', 'seo_keywords' => '测试关键词', 'seo_description' => '摘要内容', 'is_top' => '1', 'is_recommended' => '1', 'is_headline' => '0'));
@@ -406,6 +414,10 @@ try {
     $legacy->exec('UPDATE cms_schema SET version = 14 WHERE id = 1');
     Migrator::ensure($legacy);
     check((int) $legacy->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'category_field_values'")->fetchColumn() === 1 && $legacyCategories->category($legacyCategoryId)['single_body'] === '<旧栏目正文>', 'Upgrade from schema version 14 lost single-page content or field table.');
+    $legacy->exec('ALTER TABLE category_settings DROP COLUMN is_visible');
+    $legacy->exec('UPDATE cms_schema SET version = 18 WHERE id = 1');
+    Migrator::ensure($legacy);
+    check($legacyCategories->category($legacyCategoryId)['is_visible'] == 1 && $legacyCategories->category($legacyCategoryId)['single_body'] === '<旧栏目正文>', 'Upgrade from schema version 18 changed existing category visibility or content.');
 
     $unsafeRich = '<p><strong>加粗内容</strong><img src="/uploads/2026/10/pic.png" onerror="alert(1)"><a href="javascript:alert(1)">危险链接</a><script>alert(1)</script></p>';
     $safeRich = RichText::clean($unsafeRich, 'html');
